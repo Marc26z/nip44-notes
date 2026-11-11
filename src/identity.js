@@ -1,4 +1,4 @@
-import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
+import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import * as nip19 from "nostr-tools/nip19";
 import * as nip44 from "nostr-tools/nip44";
 
@@ -126,6 +126,9 @@ export function makeSigner(identity) {
       async decrypt(ciphertext) {
         return nip44.decrypt(ciphertext, key);
       },
+      signEvent(template) {
+        return finalizeEvent(template, secret);
+      },
     };
   }
 
@@ -142,6 +145,9 @@ export function makeSigner(identity) {
       },
       async decrypt(ciphertext) {
         return window.nostr.nip44.decrypt(pubkey, ciphertext);
+      },
+      async signEvent(template) {
+        return window.nostr.signEvent(template);
       },
     };
   }

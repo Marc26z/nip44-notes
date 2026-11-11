@@ -1,11 +1,13 @@
 import { SimplePool } from "nostr-tools/pool";
-import { finalizeEvent } from "nostr-tools/pure";
-import { fileId, noteFileName, openPayload, tombstoneFileName } from "./crypto.js";
+import { verifyEvent } from "nostr-tools/pure";
+import { FILE_FORMAT, validateEnvelope } from "./core.js";
 
 export const NOTE_KIND = 30078; // NIP-78 application-specific data (addressable)
+export const DELETE_KIND = 5; // NIP-09 deletion request
 export const NOTE_D_PREFIX = "nip44-notes:";
 export const NOTE_T_TAG = "nip44-notes";
 export const NOTE_ALT = "Encrypted Markdown note (NIP-44)";
+export const RELAYS_KEY = "nip44notes.relays.v1";
 
 export const DEFAULT_RELAYS = [
   "wss://relay.damus.io",
@@ -13,6 +15,8 @@ export const DEFAULT_RELAYS = [
   "wss://relay.primal.net",
   "wss://relay.ditto.pub",
 ];
+
+const ID_RE = /^[0-9a-f]{8,64}$/i;
 
 export function normalizeRelays(input) {
   const raw = Array.isArray(input)
@@ -41,6 +45,27 @@ export function normalizeRelays(input) {
   return out;
 }
 
+export function loadRelays() {
+  try {
+    const raw = localStorage.getItem(RELAYS_KEY);
+    if (raw === null) return [...DEFAULT_RELAYS];
+    const parsed = JSON.parse(raw);
+    return normalizeRelays(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return [...DEFAULT_RELAYS];
+  }
+}
+
+export function saveRelays(input) {
+  const relays = normalizeRelays(input);
+  try {
+    localStorage.setItem(RELAYS_KEY, JSON.stringify(relays));
+  } catch {
+    /* storage may be unavailable */
+  }
+  return relays;
+}
+
 export function noteDTag(id) {
   return `${NOTE_D_PREFIX}${id}`;
 }
@@ -49,179 +74,200 @@ export function idFromDTag(d) {
   const value = String(d || "");
   if (!value.startsWith(NOTE_D_PREFIX)) return null;
   const id = value.slice(NOTE_D_PREFIX.length);
-  return fileId(`${id}.md`) ? id : null;
+  return ID_RE.test(id) ? id : null;
 }
 
-export function buildCiphertextEvent({ id, ciphertext, secretKey, createdAt = Date.now() }) {
-  if (!fileId(`${id}.md`)) throw new Error("Invalid note id");
-  if (!ciphertext) throw new Error("Missing ciphertext");
-  return finalizeEvent(
-    {
-      kind: NOTE_KIND,
-      created_at: Math.max(0, Math.floor(createdAt / 1000)),
-      tags: [
-        ["d", noteDTag(id)],
-        ["t", NOTE_T_TAG],
-        ["alt", NOTE_ALT],
-        ["client", "nip44-notes"],
-      ],
-      content: ciphertext,
-    },
-    secretKey,
-  );
+function toSeconds(timestamp) {
+  return Math.max(0, Math.floor((Number(timestamp) || 0) / 1000));
 }
 
-export function buildDeleteEvent(id, secretKey, { publicKey, createdAt = Date.now() } = {}) {
-  if (!fileId(`${id}.md`)) throw new Error("Invalid note id");
-  return finalizeEvent(
-    {
-      kind: 5,
-      created_at: Math.max(0, Math.floor(createdAt / 1000)),
-      tags: [
-        ["a", `${NOTE_KIND}:${publicKey}:${noteDTag(id)}`],
-        ["t", NOTE_T_TAG],
-        ["alt", "Delete an encrypted NIP44 Notes note"],
-        ["client", "nip44-notes"],
-      ],
-      content: "",
-    },
-    secretKey,
-  );
+export function buildNoteTemplate(envelope, pubkey) {
+  const env = validateEnvelope(envelope);
+  return {
+    kind: NOTE_KIND,
+    pubkey,
+    created_at: toSeconds(env.updatedAt),
+    tags: [
+      ["d", noteDTag(env.id)],
+      ["t", NOTE_T_TAG],
+      ["alt", NOTE_ALT],
+      ["client", "nip44-notes"],
+    ],
+    content: env.ciphertext,
+  };
+}
+
+export function buildDeleteTemplate(id, pubkey, deletedAt = Date.now()) {
+  if (!ID_RE.test(String(id || ""))) throw new Error("Invalid note id");
+  return {
+    kind: DELETE_KIND,
+    pubkey,
+    created_at: toSeconds(deletedAt),
+    tags: [
+      ["a", `${NOTE_KIND}:${pubkey}:${noteDTag(id)}`],
+      ["t", NOTE_T_TAG],
+      ["alt", "Delete an encrypted NIP44 Notes note"],
+      ["client", "nip44-notes"],
+    ],
+    content: "",
+  };
 }
 
 export function noteEventFilter(pubkey) {
   return {
-    kinds: [NOTE_KIND],
+    kinds: [NOTE_KIND, DELETE_KIND],
     authors: [pubkey],
     "#t": [NOTE_T_TAG],
     limit: 1000,
   };
 }
 
-/**
- * Compare remote events with the note files on disk. Pure so it can be tested
- * without relays or a browser.
- *
- * local: { notes: [{ note, ciphertext, fileName }], tombstones: Map }
- * returns { remote: Map, actions, errors }
- * action = { type: "write-note"|"write-tombstone"|"remove-note"|"remove-tombstone", ... }
- */
-export function planMerge(local, events, key) {
-  const remote = new Map();
-  const actions = [];
-  const errors = [];
-
-  const localEntry = (id) => {
-    const note = local.notes.find((entry) => entry.note.id === id);
-    if (note) return { kind: "note", updatedAt: note.note.updatedAt, entry: note };
-    const tomb = local.tombstones?.get(id);
-    if (tomb) return { kind: "tombstone", updatedAt: Number(tomb.payload.updatedAt) || 0, entry: tomb };
+export function eventToRemote(event) {
+  if (!event || typeof event !== "object") return null;
+  if (event.kind === DELETE_KIND) {
+    for (const tag of event.tags || []) {
+      if (!Array.isArray(tag) || tag[0] !== "a") continue;
+      const parts = String(tag[1] || "").split(":");
+      if (parts.length < 3) continue;
+      if (parts[0] !== String(NOTE_KIND)) continue;
+      const id = idFromDTag(parts.slice(2).join(":"));
+      if (!id) continue;
+      return {
+        type: "delete",
+        id,
+        deletedAt: Math.max(0, Number(event.created_at) || 0) * 1000,
+        event,
+      };
+    }
     return null;
-  };
+  }
+  if (event.kind !== NOTE_KIND) return null;
+  const d = (event.tags || []).find((tag) => Array.isArray(tag) && tag[0] === "d")?.[1];
+  const id = idFromDTag(d);
+  if (!id) return null;
+  if (typeof event.content !== "string" || !event.content) return null;
+  const updatedAt = Math.max(0, Number(event.created_at) || 0) * 1000;
+  return { type: "note", id, updatedAt, ciphertext: event.content, event };
+}
 
-  for (const event of events) {
-    if (![NOTE_KIND, 5].includes(event?.kind)) continue;
-    if (event.kind === 5) continue;
-    const d = (event.tags || []).find((tag) => tag[0] === "d")?.[1];
-    const id = idFromDTag(d);
-    if (!id) continue;
-    let payload;
-    try {
-      payload = openPayload(event.content, key);
-    } catch (error) {
-      errors.push({ id, message: error?.message || "Could not decrypt relay event" });
-      continue;
-    }
-    if (payload.id !== id) {
-      errors.push({ id, message: "Note id does not match its event tag" });
-      continue;
-    }
-    const updatedAt = Number(payload.updatedAt) || Number(event.created_at) * 1000 || 0;
-    const next = { id, payload, event, updatedAt, ciphertext: event.content };
+function tombstoneSeconds(tombstones, id) {
+  if (!tombstones) return 0;
+  if (tombstones instanceof Map) return toSeconds(tombstones.get(id));
+  return toSeconds(tombstones[id]);
+}
 
-    const previous = remote.get(id);
-    if (!previous || updatedAt >= previous.updatedAt) remote.set(id, next);
+/**
+ * Compare relay events with local envelopes. Pure so it can be tested without
+ * relays or a browser.
+ *
+ * local: { envelopes: Map|object of id -> envelope, tombstones: Map|object of id -> timestamp }
+ * remote: array of records from eventToRemote()
+ * returns { remoteNotes, remoteDeletes, writes, deletes }
+ */
+export function planMerge(local, remote) {
+  const envelopes =
+    local?.envelopes instanceof Map
+      ? local.envelopes
+      : new Map(Object.entries(local?.envelopes || {}));
+  const tombstones = local?.tombstones || {};
+  const remoteNotes = new Map();
+  const remoteDeletes = new Map();
 
-    const current = localEntry(id);
-    if (current && current.updatedAt >= updatedAt) continue;
-
-    if (payload.deleted) {
-      actions.push({
-        type: "write-tombstone",
-        id,
-        fileName: tombstoneFileName(id),
-        ciphertext: event.content,
-        updatedAt,
-      });
-      actions.push({ type: "remove-note", id });
-    } else {
-      actions.push({
-        type: "write-note",
-        id,
-        fileName: noteFileName(id),
-        ciphertext: event.content,
-        updatedAt,
-      });
-      actions.push({ type: "remove-tombstone", id });
+  for (const record of remote || []) {
+    if (!record) continue;
+    if (record.type === "note") {
+      const previous = remoteNotes.get(record.id);
+      if (!previous || toSeconds(record.updatedAt) >= toSeconds(previous.updatedAt)) {
+        remoteNotes.set(record.id, record);
+      }
+    } else if (record.type === "delete") {
+      const previous = remoteDeletes.get(record.id);
+      if (!previous || record.deletedAt >= previous.deletedAt) {
+        remoteDeletes.set(record.id, record);
+      }
     }
   }
 
-  return { remote, actions, errors };
+  const writes = [];
+  const deletes = [];
+
+  for (const [id, note] of remoteNotes) {
+    const deletion = remoteDeletes.get(id);
+    if (deletion && toSeconds(deletion.deletedAt) >= toSeconds(note.updatedAt)) continue;
+    const current = envelopes.get(id);
+    if (current && toSeconds(current.updatedAt) >= toSeconds(note.updatedAt)) continue;
+    writes.push({
+      id,
+      envelope: {
+        format: FILE_FORMAT,
+        id,
+        createdAt: Number(current?.createdAt) || note.updatedAt,
+        updatedAt: note.updatedAt,
+        ciphertext: note.ciphertext,
+      },
+    });
+  }
+
+  for (const [id, deletion] of remoteDeletes) {
+    const current = envelopes.get(id);
+    const note = remoteNotes.get(id);
+    if (note && toSeconds(note.updatedAt) > toSeconds(deletion.deletedAt)) continue;
+    if (current && toSeconds(current.updatedAt) > toSeconds(deletion.deletedAt)) continue;
+    if (tombstoneSeconds(tombstones, id) >= toSeconds(deletion.deletedAt)) continue;
+    deletes.push({ id, deletedAt: deletion.deletedAt });
+  }
+
+  return { remoteNotes, remoteDeletes, writes, deletes };
 }
 
 /**
  * Which local entries should be published because the relays have nothing
  * newer? Tombstones count as entries so deletions propagate.
  */
-export function planPush(local, remote) {
+export function planPush(local, remoteNotes, remoteDeletes) {
+  const envelopes =
+    local?.envelopes instanceof Map
+      ? local.envelopes
+      : new Map(Object.entries(local?.envelopes || {}));
+  const tombstones = local?.tombstones || {};
   const out = [];
-  for (const entry of local.notes) {
-    const id = entry.note.id;
-    const known = remote.get(id);
-    if (!known || entry.note.updatedAt > known.updatedAt) {
-      out.push({
-        id,
-        ciphertext: entry.ciphertext,
-        updatedAt: entry.note.updatedAt,
-        deleted: false,
-      });
-    }
+
+  for (const envelope of envelopes.values()) {
+    if (!envelope || !ID_RE.test(String(envelope.id || ""))) continue;
+    const localSeconds = toSeconds(envelope.updatedAt);
+    const deletion = remoteDeletes?.get(envelope.id);
+    if (deletion && toSeconds(deletion.deletedAt) >= localSeconds) continue;
+    const note = remoteNotes?.get(envelope.id);
+    if (note && toSeconds(note.updatedAt) >= localSeconds) continue;
+    out.push({ type: "note", id: envelope.id, envelope });
   }
-  for (const [id, entry] of local.tombstones || []) {
-    const known = remote.get(id);
-    const updatedAt = Number(entry.payload.updatedAt) || 0;
-    if (!known || updatedAt > known.updatedAt) {
-      out.push({ id, ciphertext: entry.ciphertext, updatedAt, deleted: true });
-    }
+
+  const entries =
+    tombstones instanceof Map ? tombstones.entries() : Object.entries(tombstones);
+  for (const [id, timestamp] of entries) {
+    if (!ID_RE.test(String(id || ""))) continue;
+    const localSeconds = toSeconds(timestamp);
+    if (!localSeconds) continue;
+    const deletion = remoteDeletes?.get(id);
+    if (deletion && toSeconds(deletion.deletedAt) >= localSeconds) continue;
+    const note = remoteNotes?.get(id);
+    if (note && toSeconds(note.updatedAt) > localSeconds) continue;
+    out.push({ type: "delete", id, deletedAt: Number(timestamp) || 0 });
   }
-  out.sort((a, b) => a.updatedAt - b.updatedAt);
+
+  out.sort((a, b) => {
+    const at = a.type === "note" ? Number(a.envelope.updatedAt) || 0 : a.deletedAt;
+    const bt = b.type === "note" ? Number(b.envelope.updatedAt) || 0 : b.deletedAt;
+    return at - bt;
+  });
   return out;
 }
 
-export async function applyMergeActions(repository, actions) {
-  let touched = 0;
-  for (const action of actions) {
-    try {
-      if (action.type === "write-note" || action.type === "write-tombstone") {
-        await repository.writeCiphertext(action.fileName, action.ciphertext);
-        touched += 1;
-      } else if (action.type === "remove-note") {
-        await repository.removeFile(noteFileName(action.id)).catch(() => {});
-      } else if (action.type === "remove-tombstone") {
-        await repository.removeFile(tombstoneFileName(action.id)).catch(() => {});
-      }
-    } catch (error) {
-      console.warn("sync action failed", action.type, action.id, error);
-    }
-  }
-  return touched;
-}
-
 export class RelaySync {
-  constructor({ relays, secretKey, pubkey, onStatus } = {}) {
+  constructor({ relays, signer, pubkey, onStatus } = {}) {
     this.relays = normalizeRelays(relays);
-    this.secretKey = secretKey;
-    this.pubkey = pubkey;
+    this.signer = signer;
+    this.pubkey = pubkey || signer?.pubkey;
     this.onStatus = onStatus || (() => {});
     this.pool = null;
     this.closed = false;
@@ -243,6 +289,7 @@ export class RelaySync {
   async pull({ maxWait = 6000 } = {}) {
     if (!this.relays.length) throw new Error("No relays configured");
     if (this.closed) throw new Error("Sync is closed");
+    if (typeof WebSocket === "undefined") throw new Error("WebSockets are not available");
     this.status("syncing", "Looking for notes…");
     const pool = this.ensurePool();
     const events = await pool.querySync(
@@ -250,27 +297,40 @@ export class RelaySync {
       noteEventFilter(this.pubkey),
       { maxWait },
     );
-    this.status("ok", `${events.length} relay event${events.length === 1 ? "" : "s"}`);
-    return events;
+    const verified = events.filter(
+      (event) => event?.pubkey === this.pubkey && verifyEvent(event),
+    );
+    this.status(
+      "ok",
+      `${verified.length} relay event${verified.length === 1 ? "" : "s"}`,
+    );
+    return verified.map(eventToRemote).filter(Boolean);
   }
 
   async publish(event) {
     if (!this.relays.length) return { accepted: 0, total: 0 };
     if (this.closed) return { accepted: 0, total: 0 };
+    if (typeof WebSocket === "undefined") throw new Error("WebSockets are not available");
     const pool = this.ensurePool();
     const results = await Promise.allSettled(pool.publish(this.relays, event));
     const accepted = results.filter((result) => result.status === "fulfilled").length;
     return { accepted, total: results.length };
   }
 
-  async publishNote({ id, ciphertext, createdAt = Date.now() }) {
-    const event = buildCiphertextEvent({
-      id,
-      ciphertext,
-      secretKey: this.secretKey,
-      createdAt,
-    });
+  async publishTemplate(template) {
+    if (!this.signer || typeof this.signer.signEvent !== "function") {
+      throw new Error("This key cannot sign relay events");
+    }
+    const event = await this.signer.signEvent(template);
     return { event, ...(await this.publish(event)) };
+  }
+
+  async publishEnvelope(envelope) {
+    return this.publishTemplate(buildNoteTemplate(envelope, this.pubkey));
+  }
+
+  async publishDelete(id, deletedAt = Date.now()) {
+    return this.publishTemplate(buildDeleteTemplate(id, this.pubkey, deletedAt));
   }
 
   close() {

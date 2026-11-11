@@ -1388,6 +1388,38 @@ main {
   font-size: 0.82rem;
 }
 
+.relay-label {
+  display: block;
+  margin: 10px 0 6px;
+  color: var(--text-2);
+  font-size: 0.8rem;
+}
+
+.relay-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 104px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.icon-btn.is-syncing svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .hint {
   margin: 10px 0 0;
   color: var(--text-3);

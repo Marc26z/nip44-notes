@@ -11,8 +11,8 @@ cd "$(dirname "$0")/.."
 
 PACKAGE="${PACKAGE:-com.marc26z.nip44notes}"
 NAME="${NAME:-NIP44 Notes}"
-VERSION_CODE="${VERSION_CODE:-1}"
-VERSION_NAME="${VERSION_NAME:-0.01}"
+VERSION_CODE="${VERSION_CODE:-3}"
+VERSION_NAME="${VERSION_NAME:-0.03}"
 KEYSTORE="${KEYSTORE:-keystore.p12}"
 OUT="${OUT:-dist/nip44notes-${VERSION_NAME}.apk}"
 

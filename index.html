@@ -45,6 +45,7 @@
     <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></symbol>
     <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1 1"/><path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1-1"/></symbol>
     <symbol id="i-install" viewBox="0 0 24 24"><path d="M12 3v11"/><path d="m8 10 4 4 4-4"/><path d="M5 17v2h14v-2"/></symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 7h-5V2"/><path d="M4 17h5v5"/><path d="M5.1 9a7 7 0 0 1 11.5-2.5L20 9"/><path d="M18.9 15a7 7 0 0 1-11.5 2.5L4 15"/></symbol>
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z"/><path d="m14 7 3 3"/></symbol>
   </svg>
 
@@ -58,6 +59,9 @@
         <button class="identity-chip" id="identity-chip" type="button" title="Identity and settings">
           <span class="identity-dot"></span>
           <code id="identity-label">…</code>
+        </button>
+        <button class="icon-btn" id="sync-btn" type="button" aria-label="Sync notes" title="Sync now">
+          <svg class="icon"><use href="#i-sync"></use></svg>
         </button>
         <button class="icon-btn" id="install-btn" type="button" aria-label="Install app" title="Install app" hidden>
           <svg class="icon"><use href="#i-install"></use></svg>
@@ -279,6 +283,19 @@
           <button id="import-btn" class="btn btn-small" type="button">Import backup / Markdown…</button>
         </div>
         <p class="hint" id="storage-hint"></p>
+      </section>
+
+      <section class="setting-group">
+        <h3>Relay sync</h3>
+        <div class="setting-row"><span>Status</span><strong id="sync-status">Not synced yet</strong></div>
+        <div class="setting-row"><span>Last sync</span><strong id="sync-last">Never</strong></div>
+        <label class="relay-label" for="relay-input">Relays (one per line)</label>
+        <textarea id="relay-input" class="relay-input" rows="5" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="wss://relay.example.com"></textarea>
+        <div class="setting-actions">
+          <button id="save-relays-btn" class="btn btn-small" type="button">Save relays</button>
+          <button id="sync-now-btn" class="btn btn-small" type="button">Sync now</button>
+        </div>
+        <p class="hint">Notes are encrypted before they leave this device. Use the same key and relays on every device.</p>
       </section>
 
       <section class="setting-group">

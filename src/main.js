@@ -44,6 +44,7 @@ import {
   requestPersistentStorage,
 } from "./store.js";
 import { exportBackupFile, exportMarkdownFile, pickFiles } from "./backup.js";
+import { RelaySync, loadRelays, planMerge, planPush, saveRelays } from "./sync.js";
 import {
   copyText,
   loadTheme,
@@ -70,6 +71,7 @@ const els = {
   brandLink: document.getElementById("brand-link"),
   identityChip: document.getElementById("identity-chip"),
   identityLabel: document.getElementById("identity-label"),
+  syncBtn: document.getElementById("sync-btn"),
   installBtn: document.getElementById("install-btn"),
   themeBtn: document.getElementById("theme-btn"),
   settingsBtn: document.getElementById("settings-btn"),
@@ -139,6 +141,11 @@ const els = {
   settingsStorage: document.getElementById("settings-storage"),
   settingsCount: document.getElementById("settings-count"),
   settingsUnreadable: document.getElementById("settings-unreadable"),
+  relayInput: document.getElementById("relay-input"),
+  saveRelaysBtn: document.getElementById("save-relays-btn"),
+  syncNowBtn: document.getElementById("sync-now-btn"),
+  syncStatus: document.getElementById("sync-status"),
+  syncLast: document.getElementById("sync-last"),
   changeFolderBtn: document.getElementById("change-folder-btn"),
   useOpfsBtn: document.getElementById("use-opfs-btn"),
   reloadBtn: document.getElementById("reload-btn"),
@@ -202,6 +209,13 @@ const state = {
   nsecRevealed: false,
   nsecTimer: 0,
   listTimer: 0,
+  relays: loadRelays(),
+  syncing: false,
+  syncState: "idle",
+  syncDetail: "",
+  syncRun: 0,
+  lastSync: 0,
+  publishPromise: Promise.resolve(),
 };
 
 function toast(message, kind = "info", timeout = 4200) {
@@ -246,8 +260,10 @@ function deletedAt(id) {
 }
 
 function markDeleted(id) {
-  state.tombstones[tombstoneKey(id)] = Date.now();
+  const at = Date.now();
+  state.tombstones[tombstoneKey(id)] = at;
   saveTombstones();
+  return at;
 }
 
 function loadTombstones() {
@@ -277,6 +293,202 @@ function pruneTombstones() {
     }
   }
   if (changed) saveTombstones();
+}
+
+function relayTombstones() {
+  const prefix = `${state.identity?.pubkey || ""}:`;
+  const out = new Map();
+  for (const [key, value] of Object.entries(state.tombstones)) {
+    if (!key.startsWith(prefix)) continue;
+    const id = key.slice(prefix.length);
+    const at = Number(value) || 0;
+    if (at) out.set(id, at);
+  }
+  return out;
+}
+
+function renderSyncStatus() {
+  if (!els.syncStatus) return;
+  const syncing = state.syncState === "syncing";
+  let text = "Not synced yet";
+  if (state.syncState === "syncing") text = state.syncDetail || "Syncing…";
+  else if (state.syncState === "ok") text = state.syncDetail || "Up to date";
+  else if (state.syncState === "error") text = state.syncDetail || "Sync failed";
+  els.syncStatus.textContent = text;
+  els.syncLast.textContent = state.lastSync ? relativeTime(state.lastSync) : "Never";
+  els.syncBtn.classList.toggle("is-syncing", syncing);
+  els.syncBtn.disabled = syncing;
+  els.syncNowBtn.disabled = syncing;
+  els.syncBtn.title = syncing ? "Syncing…" : "Sync now";
+}
+
+function setSyncState(name, detail = "") {
+  state.syncState = name;
+  state.syncDetail = detail;
+  renderSyncStatus();
+}
+
+function queueRelayTask(task) {
+  if (!state.signer || !state.relays.length) return;
+  if (typeof WebSocket === "undefined") return;
+  const signer = state.signer;
+  const relays = state.relays;
+  state.publishPromise = state.publishPromise.then(
+    async () => {
+      const sync = new RelaySync({ relays, signer, pubkey: signer.pubkey });
+      try {
+        await task(sync);
+      } catch {
+        /* publishing is best effort */
+      } finally {
+        sync.close();
+      }
+    },
+    () => {},
+  );
+}
+
+function queuePublishEnvelope(envelope) {
+  queueRelayTask((sync) => sync.publishEnvelope(envelope));
+}
+
+function queuePublishDelete(id, deletedAt) {
+  queueRelayTask((sync) => sync.publishDelete(id, deletedAt));
+}
+
+async function syncNow({ silent = false } = {}) {
+  if (!state.signer || !state.store) return;
+  if (!state.relays.length) {
+    setSyncState("error", "No relays configured");
+    if (!silent) toast("Add at least one relay in Settings.", "warn");
+    return;
+  }
+  if (typeof WebSocket === "undefined") {
+    if (!silent) toast("Relay sync needs WebSockets, which are unavailable here.", "error");
+    return;
+  }
+  if (state.syncing) return;
+  const store = state.store;
+  const signer = state.signer;
+  const run = ++state.syncRun;
+  state.syncing = true;
+  setSyncState("syncing", "Looking for notes…");
+  const sync = new RelaySync({
+    relays: state.relays,
+    signer,
+    pubkey: signer.pubkey,
+    onStatus: ({ state: name, detail }) => {
+      if (run === state.syncRun) setSyncState(name, detail);
+    },
+  });
+
+  try {
+    await flushSave();
+    if (run !== state.syncRun || state.store !== store || state.signer !== signer) return;
+    const remote = await sync.pull({ maxWait: 6000 });
+    if (run !== state.syncRun || state.store !== store || state.signer !== signer) return;
+
+    const merge = planMerge(
+      { envelopes: state.envelopes, tombstones: relayTombstones() },
+      remote,
+    );
+    let changed = 0;
+
+    for (const write of merge.writes) {
+      let note;
+      try {
+        note = await decryptEnvelope(write.envelope, (ciphertext) => signer.decrypt(ciphertext));
+      } catch {
+        continue;
+      }
+      if (run !== state.syncRun || state.store !== store) return;
+      try {
+        await store.write(note.id, write.envelope);
+      } catch {
+        continue;
+      }
+      state.envelopes.set(note.id, write.envelope);
+      state.notes.set(note.id, note);
+      changed++;
+    }
+
+    for (const deletion of merge.deletes) {
+      if (run !== state.syncRun || state.store !== store) return;
+      if (state.envelopes.has(deletion.id)) {
+        try {
+          await store.remove(deletion.id);
+        } catch {
+          /* file already gone */
+        }
+        state.envelopes.delete(deletion.id);
+      }
+      state.notes.delete(deletion.id);
+      const key = tombstoneKey(deletion.id);
+      state.tombstones[key] = Math.max(Number(state.tombstones[key]) || 0, deletion.deletedAt);
+      if (state.selectedId === deletion.id) {
+        state.selectedId = null;
+        state.editorId = null;
+        state.draft = null;
+        state.lastSaved = null;
+        history.replaceState(null, "", "#/");
+        els.notesView.classList.remove("is-editing");
+        els.editor.hidden = true;
+        els.editorEmpty.hidden = false;
+        els.noteTitle.value = "";
+        els.noteBody.value = "";
+        els.notePreview.innerHTML = "";
+      }
+      changed++;
+    }
+    if (merge.deletes.length) saveTombstones();
+
+    if (changed) {
+      state.editorId = null;
+      if (state.selectedId && state.notes.has(state.selectedId)) {
+        fillEditor(state.notes.get(state.selectedId));
+      }
+      renderAll();
+    }
+
+    const pushes = planPush(
+      { envelopes: state.envelopes, tombstones: relayTombstones() },
+      merge.remoteNotes,
+      merge.remoteDeletes,
+    );
+    let published = 0;
+    for (const item of pushes) {
+      if (run !== state.syncRun || state.signer !== signer) return;
+      try {
+        if (item.type === "note") await sync.publishEnvelope(item.envelope);
+        else await sync.publishDelete(item.id, item.deletedAt);
+        published++;
+      } catch {
+        /* best effort */
+      }
+    }
+
+    state.lastSync = Date.now();
+    const parts = [];
+    if (changed) parts.push(`${changed} change${changed === 1 ? "" : "s"} received`);
+    if (published) parts.push(`${published} note${published === 1 ? "" : "s"} published`);
+    setSyncState("ok", parts.length ? parts.join(", ") : "Up to date");
+    if (!silent) {
+      toast(
+        parts.length ? `Sync complete: ${parts.join(", ")}.` : "Relay sync is up to date.",
+        "success",
+        5000,
+      );
+    }
+  } catch (error) {
+    if (run === state.syncRun) setSyncState("error", error?.message || "Sync failed");
+    if (!silent) toast(error?.message || "Relay sync failed.", "error", 6000);
+  } finally {
+    sync.close();
+    if (run === state.syncRun) {
+      state.syncing = false;
+      renderSyncStatus();
+    }
+  }
 }
 
 function opfsSupported() {
@@ -645,6 +857,7 @@ async function doSave() {
     if (!state.notes.has(updated.id)) return;
     await state.store.write(updated.id, envelope);
     state.envelopes.set(updated.id, envelope);
+    queuePublishEnvelope(envelope);
     const live = state.notes.get(updated.id);
     if (live) live.updatedAt = updated.updatedAt;
     if (state.draft?.id === updated.id) state.draft = null;
@@ -908,6 +1121,7 @@ async function activateStore(store, handle, warning) {
   await route();
   pruneTombstones();
   void requestPersistentStorage();
+  if (state.relays.length) void syncNow({ silent: true });
   if (warning) toast(warning, "warn", 8000);
 }
 
@@ -1087,6 +1301,10 @@ function fillSettings() {
   els.themeSelect.value = loadTheme();
   els.appVersion.textContent = APP_VERSION;
   els.storageHint.textContent = storageHint(info);
+  if (document.activeElement !== els.relayInput) {
+    els.relayInput.value = state.relays.join("\n");
+  }
+  renderSyncStatus();
 }
 
 function openSettings() {
@@ -1118,6 +1336,12 @@ function resetSession() {
   state.filter = "";
   state.filterFolder = null;
   state.savePromise = Promise.resolve();
+  state.publishPromise = Promise.resolve();
+  state.syncing = false;
+  state.syncState = "idle";
+  state.syncDetail = "";
+  state.lastSync = 0;
+  state.syncRun++;
   els.searchInput.value = "";
   els.clearSearchBtn.hidden = true;
   els.noteTitle.value = "";
@@ -1303,6 +1527,7 @@ async function deleteAllNotes() {
   const now = Date.now();
   for (const id of state.envelopes.keys()) {
     state.tombstones[tombstoneKey(id)] = now;
+    queuePublishDelete(id, now);
   }
   saveTombstones();
   state.notes.clear();
@@ -1563,13 +1788,14 @@ async function deleteCurrent() {
   await state.savePromise.catch(() => {});
   const id = note.id;
   if (state.envelopes.has(id)) {
-    markDeleted(id);
+    const deletedAt = markDeleted(id);
     try {
       await state.store.remove(id);
     } catch (error) {
       toast(`Could not delete the file: ${error?.message || error}`, "error", 6000);
       return;
     }
+    queuePublishDelete(id, deletedAt);
   }
   state.envelopes.delete(id);
   state.notes.delete(id);
@@ -1863,6 +2089,24 @@ function setupEvents() {
   });
   els.deleteAllBtn.addEventListener("click", () => {
     void deleteAllNotes();
+  });
+
+  els.saveRelaysBtn.addEventListener("click", () => {
+    state.relays = saveRelays(els.relayInput.value);
+    els.relayInput.value = state.relays.join("\n");
+    if (!state.relays.length) {
+      setSyncState("error", "No relays configured");
+      toast("No valid relays saved. Relay sync is off.", "warn", 5000);
+      return;
+    }
+    toast(`${state.relays.length} relay${state.relays.length === 1 ? "" : "s"} saved.`, "success", 3000);
+    void syncNow();
+  });
+  els.syncNowBtn.addEventListener("click", () => {
+    void syncNow();
+  });
+  els.syncBtn.addEventListener("click", () => {
+    void syncNow();
   });
 
   els.settingsDialog.addEventListener("close", hideNsec);
