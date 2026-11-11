@@ -16,7 +16,17 @@ const STATIC_DIRS = ["icons"];
 async function copyStatic() {
   await mkdir(dist, { recursive: true });
   await Promise.all(
-    STATIC_FILES.map((name) => cp(path.join(root, name), path.join(dist, name))),
+    STATIC_FILES.filter((name) => name !== "index.html").map((name) =>
+      cp(path.join(root, name), path.join(dist, name)),
+    ),
+  );
+  const html = await readFile(path.join(root, "index.html"), "utf8");
+  await writeFile(
+    path.join(dist, "index.html"),
+    html.replace(
+      '<script type="module" src="/src/main.js"></script>',
+      '<script src="app.js" defer></script>',
+    ),
   );
   await Promise.all(
     STATIC_DIRS.map((name) =>

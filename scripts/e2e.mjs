@@ -4,7 +4,7 @@
  *
  * Always rebuilds first, so it exercises exactly what would ship: the app is
  * loaded from dist/ as a real script tag, then driven through onboarding,
- * writing, autosave, reload, search, preview, and deletion.
+ * writing, autosave, reload, search, preview, deletion, and same-key sync.
  */
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -17,6 +17,81 @@ import { JSDOM, VirtualConsole } from "jsdom";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const URL_ROOT = "http://localhost:4173/";
 const NOTE_BODY = "## Groceries\n\n- milk\n- **eggs**";
+const TEST_RELAY = "wss://relay.test";
+
+/* A small in-memory Nostr relay used by every test browser window. The windows
+ * have isolated storage, so this lets the e2e suite exercise real publishing,
+ * querying, event verification, decryption, and merging across two devices. */
+const relayEvents = new Map();
+
+function eventsAt(url) {
+  if (!relayEvents.has(url)) relayEvents.set(url, []);
+  return relayEvents.get(url);
+}
+
+function matchesFilter(event, filter) {
+  if (filter.kinds && !filter.kinds.includes(event.kind)) return false;
+  if (filter.authors && !filter.authors.includes(event.pubkey)) return false;
+  if (filter.ids && !filter.ids.includes(event.id)) return false;
+  for (const [name, values] of Object.entries(filter)) {
+    if (!name.startsWith("#")) continue;
+    const tags = (event.tags || []).filter((tag) => tag[0] === name.slice(1));
+    if (!tags.some((tag) => values.includes(tag[1]))) return false;
+  }
+  return true;
+}
+
+class TestRelayWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+
+  constructor(url) {
+    this.url = url;
+    this.readyState = TestRelayWebSocket.CONNECTING;
+    setTimeout(() => {
+      if (this.readyState !== TestRelayWebSocket.CONNECTING) return;
+      this.readyState = TestRelayWebSocket.OPEN;
+      this.onopen?.({});
+    }, 0);
+  }
+
+  reply(message) {
+    setTimeout(() => {
+      if (this.readyState === TestRelayWebSocket.OPEN) {
+        this.onmessage?.({ data: JSON.stringify(message) });
+      }
+    }, 0);
+  }
+
+  send(text) {
+    if (this.readyState !== TestRelayWebSocket.OPEN) throw new Error("Relay is not open");
+    const message = JSON.parse(text);
+    if (message[0] === "EVENT") {
+      const event = message[1];
+      eventsAt(this.url).push(event);
+      this.reply(["OK", event.id, true, ""]);
+      return;
+    }
+    if (message[0] === "REQ") {
+      const subscription = message[1];
+      const filters = message.slice(2);
+      const matching = eventsAt(this.url)
+        .filter((event) => filters.some((filter) => matchesFilter(event, filter)))
+        .sort((a, b) => b.created_at - a.created_at);
+      const limit = Math.min(...filters.map((filter) => filter.limit || 500));
+      for (const event of matching.slice(0, limit)) {
+        this.reply(["EVENT", subscription, event]);
+      }
+      this.reply(["EOSE", subscription]);
+    }
+  }
+
+  close() {
+    this.readyState = TestRelayWebSocket.CLOSED;
+  }
+}
 
 let pageHtml = "";
 const openWindows = [];
@@ -61,6 +136,7 @@ function makeWindow({ seed = [] } = {}) {
   const { window } = dom;
 
   Object.defineProperty(window, "crypto", { value: webcrypto, configurable: true });
+  window.WebSocket = TestRelayWebSocket;
   window.matchMedia = (query) => ({
     matches: false,
     media: query,
@@ -82,6 +158,7 @@ function makeWindow({ seed = [] } = {}) {
     this.dispatchEvent(new window.Event("close"));
   };
 
+  window.localStorage.setItem("nip44notes.relays.v1", JSON.stringify([TEST_RELAY]));
   for (const [key, value] of seed) window.localStorage.setItem(key, value);
 
   openWindows.push(window);
@@ -165,6 +242,18 @@ async function main() {
   assert(envelope.format === "nip44-notes/1", "file is a NIP44 Notes envelope");
   assert(!raw.includes("eggs") && !raw.includes("Shopping"), "file does not contain plaintext");
   ok("note saved as an encrypted file", `${fileKey} (${raw.length} bytes)`);
+  const publisherPubkey = JSON.parse(
+    s1.window.localStorage.getItem("nip44notes.identity.v1"),
+  ).pubkey;
+  await waitFor("encrypted note accepted by the relay", () =>
+    eventsAt(TEST_RELAY).some(
+      (event) =>
+        event.kind === 30078 &&
+        event.pubkey === publisherPubkey &&
+        event.tags.some((tag) => tag[0] === "d" && tag[1] === `nip44-notes:${noteId}`),
+    ),
+  );
+  ok("encrypted note published to the relay");
 
   click(byId(s1.window, "tab-preview"));
   await waitFor("preview", () => !byId(s1.window, "note-preview").hidden);
@@ -293,6 +382,41 @@ async function main() {
   assert(byId(s2.window, "save-status").dataset.state === "saved", "note is not a draft");
   ok("editor restores the note");
 
+  /* --------------------------------------------------- another device -- */
+  console.log("\nSession 2b: another device with the same key");
+  const otherDevice = makeWindow({
+    seed: [
+      [
+        "nip44notes.identity.v1",
+        s2.window.localStorage.getItem("nip44notes.identity.v1"),
+      ],
+      ["nip44notes.storage.v1", "local"],
+    ],
+  });
+  assert(
+    otherDevice.window.localStorage.getItem(fileKey) === null,
+    "device starts without the note",
+  );
+  runApp(otherDevice.window, bundle);
+  await waitFor(
+    "note pulled and decrypted on the other device",
+    () =>
+      otherDevice.window.document.querySelector(".note-card-title")?.textContent ===
+      "Shopping list",
+  );
+  assert(otherDevice.window.localStorage.getItem(fileKey) !== null, "synced file was written locally");
+  click(otherDevice.window.document.querySelector(".note-card"));
+  await waitFor("other device editor", () => !byId(otherDevice.window, "editor").hidden);
+  assert(
+    byId(otherDevice.window, "note-body").value === NOTE_BODY,
+    "the other device decrypts the synced note body",
+  );
+  assert(
+    otherDevice.window.document.querySelectorAll(".note-card").length === 1,
+    "deleted notes stay deleted",
+  );
+  ok("same-key relay sync converges on an isolated device");
+
   const search = byId(s2.window, "search-input");
   fire(search, "input", "zzz");
   assert(!byId(s2.window, "empty-list").hidden, "empty state for no matches");
@@ -318,7 +442,7 @@ async function main() {
   );
   ok("note deleted with a tombstone");
 
-  const scriptErrors = [...s1.errors, ...s2.errors];
+  const scriptErrors = [...s1.errors, ...s2.errors, ...otherDevice.errors];
   assert(scriptErrors.length === 0, `no script errors (got: ${scriptErrors.join("; ")})`);
 
   console.log("\nAll end-to-end checks passed.");

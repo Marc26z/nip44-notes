@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { FILE_FORMAT } from "../src/core.js";
 import { bytesToHex, makeSigner } from "../src/identity.js";
@@ -124,6 +125,22 @@ test("the relay filter asks for notes and delete requests", () => {
   assert.deepEqual(filter.kinds, [NOTE_KIND, DELETE_KIND]);
   assert.deepEqual(filter.authors, [PUBKEY]);
   assert.deepEqual(filter["#t"], ["nip44-notes"]);
+});
+
+test("the app security policy permits Nostr relay WebSockets", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const csp = /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)"/.exec(
+    html,
+  )?.[1];
+  assert.ok(csp, "the Content Security Policy exists");
+  const connect = csp
+    .split(";")
+    .map((directive) => directive.trim())
+    .find((directive) => directive.startsWith("connect-src "));
+  assert.ok(connect, "the connect-src directive exists");
+  const sources = new Set(connect.split(/\s+/).slice(1));
+  assert.ok(sources.has("wss:"), "secure relays are not blocked by connect-src");
+  assert.ok(sources.has("ws:"), "explicitly configured local relays are not blocked");
 });
 
 test("merge takes newer remote notes and preserves local createdAt", () => {
