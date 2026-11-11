@@ -1,10 +1,78 @@
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 
+const HTML_ESCAPES = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
+}
+
+function parseWikilink(source) {
+  const match = /^\[\[([^\[\]\n]+?)\]\]/.exec(source);
+  if (!match) return null;
+  const inner = match[1].trim();
+  if (!inner) return null;
+  const pipe = inner.indexOf("|");
+  const alias = pipe === -1 ? "" : inner.slice(pipe + 1).trim();
+  const reference = (pipe === -1 ? inner : inner.slice(0, pipe)).trim();
+  const hash = reference.indexOf("#");
+  const target = (hash === -1 ? reference : reference.slice(0, hash)).trim();
+  const heading = (hash === -1 ? "" : reference.slice(hash + 1)).trim();
+  if (!target && !heading) return null;
+  return { raw: match[0], target, heading, alias };
+}
+
+const wikilinkExtension = {
+  name: "wikilink",
+  level: "inline",
+  start(source) {
+    const index = source.indexOf("[[");
+    return index === -1 ? undefined : index;
+  },
+  tokenizer(source) {
+    const parsed = parseWikilink(source);
+    if (!parsed) return undefined;
+    const resolve = this.lexer?.options?.resolveWikilink;
+    const note = typeof resolve === "function" ? resolve(parsed.target) : null;
+    return {
+      type: "wikilink",
+      raw: parsed.raw,
+      target: parsed.target,
+      heading: parsed.heading,
+      alias: parsed.alias,
+      noteId: note?.id || "",
+      noteTitle: note?.title || "",
+    };
+  },
+  renderer(token) {
+    const label = token.alias || token.target || token.heading;
+    let text = label;
+    if (token.heading && !token.alias) {
+      text = `${token.target ? `${token.target} › ` : ""}${token.heading}`;
+    }
+    if (token.noteId) {
+      const title = token.noteTitle ? ` title="Open ${escapeHtml(token.noteTitle)}"` : "";
+      return `<a class="wikilink" href="#/n/${escapeHtml(token.noteId)}"${title}>${escapeHtml(text)}</a>`;
+    }
+    if (!token.target) {
+      return `<span class="wikilink is-missing">${escapeHtml(text)}</span>`;
+    }
+    const query = encodeURIComponent(token.target);
+    return `<a class="wikilink is-missing" href="#/new?title=${query}" title="Create “${escapeHtml(token.target)}”">${escapeHtml(text)}</a>`;
+  },
+};
+
 marked.use({
   gfm: true,
   breaks: false,
   pedantic: false,
+  extensions: [wikilinkExtension],
 });
 
 const TAGS = [
@@ -56,7 +124,7 @@ function installHooks(instance) {
       const href = node.getAttribute("href");
       if (href && !safeHref(href)) {
         node.removeAttribute("href");
-      } else if (href) {
+      } else if (href && !href.startsWith("#")) {
         node.setAttribute("target", "_blank");
         node.setAttribute("rel", "noopener noreferrer");
       }
@@ -96,10 +164,10 @@ export function initMarkdown(win) {
   installHooks(purifier);
 }
 
-export function renderMarkdown(markdown) {
+export function renderMarkdown(markdown, options = {}) {
   const text = String(markdown ?? "");
   if (!text.trim()) return "";
-  const html = marked.parse(text, { async: false });
+  const html = marked.parse(text, { async: false, ...options });
   return ensurePurifier().sanitize(String(html), {
     ALLOWED_TAGS: TAGS,
     ALLOWED_ATTR: ATTRS,

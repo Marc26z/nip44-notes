@@ -146,6 +146,13 @@
               <input id="search-input" class="search-input" type="search" placeholder="Search notes" aria-label="Search notes" autocomplete="off">
               <button id="clear-search-btn" class="clear-search" type="button" aria-label="Clear search" hidden><svg class="icon"><use href="#i-x"></use></svg></button>
             </div>
+            <div class="folder-wrap">
+              <svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg>
+              <select id="folder-filter" class="folder-select" aria-label="Filter notes by folder">
+                <option value="__all__">All notes</option>
+                <option value="__unfiled__">Unfiled</option>
+              </select>
+            </div>
             <button id="new-note-btn" class="btn btn-primary new-note-btn" type="button">
               <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>
               <span>New note</span>
@@ -200,6 +207,13 @@
             </div>
 
             <input id="note-title" class="note-title" type="text" placeholder="Untitled note" autocomplete="off" spellcheck="true" aria-label="Note title">
+
+            <div class="note-folder-row">
+              <svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg>
+              <select id="note-folder" class="note-folder-select" aria-label="Note folder">
+                <option value="">No folder</option>
+              </select>
+            </div>
 
             <div class="editor-tabs" role="tablist" aria-label="Editor mode">
               <button id="tab-edit" class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="note-body">Write</button>
@@ -295,6 +309,20 @@
       <div class="dialog-actions">
         <button id="confirm-cancel" class="btn btn-ghost" type="button">Cancel</button>
         <button id="confirm-ok" class="btn btn-danger" type="button">Confirm</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="folder-dialog" class="dialog folder-dialog">
+    <div class="dialog-body">
+      <h2 id="folder-dialog-title">New folder</h2>
+      <p id="folder-dialog-text" class="hint">Give the folder a name. You can use “/” for nested folders.</p>
+      <label class="field-label" for="folder-name-input">Folder name</label>
+      <input id="folder-name-input" class="input" type="text" autocomplete="off" spellcheck="false">
+      <p id="folder-error" class="form-error" hidden></p>
+      <div class="dialog-actions">
+        <button id="folder-cancel" class="btn btn-ghost" type="button">Cancel</button>
+        <button id="folder-save" class="btn btn-primary" type="button">Create folder</button>
       </div>
     </div>
   </dialog>

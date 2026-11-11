@@ -174,6 +174,93 @@ async function main() {
   assert(preview.includes("<li>milk</li>"), "preview renders the list");
   ok("Markdown preview renders");
 
+  /* -------------------------------------------------- folders + wikilinks -- */
+  console.log("\nSession 1b: folders and wikilinks");
+  click(byId(s1.window, "new-note-btn"));
+  await waitFor(
+    "fresh editor for a new note",
+    () =>
+      byId(s1.window, "note-title").value === "" &&
+      byId(s1.window, "word-count").textContent === "0 words",
+  );
+  fire(byId(s1.window, "note-title"), "input", "Ideas");
+  fire(
+    byId(s1.window, "note-body"),
+    "input",
+    "Read [[Shopping list]] and [[Future note]].",
+  );
+
+  const folderSelect = byId(s1.window, "note-folder");
+  folderSelect.value = "__new__";
+  fire(folderSelect, "change");
+  await waitFor("folder dialog", () => byId(s1.window, "folder-dialog").open);
+  fire(byId(s1.window, "folder-name-input"), "input", "Work");
+  click(byId(s1.window, "folder-save"));
+  await waitFor("folder assigned", () => byId(s1.window, "note-folder").value === "Work");
+  await waitFor("folder saved", () =>
+    byId(s1.window, "save-text").textContent.startsWith("Saved"),
+  );
+  ok("note moved into a new folder");
+
+  click(byId(s1.window, "tab-preview"));
+  await waitFor("preview", () => !byId(s1.window, "note-preview").hidden);
+  const linkPreview = byId(s1.window, "note-preview").innerHTML;
+  assert(
+    linkPreview.includes(`href="#/n/${noteId}"`),
+    "wikilink resolves to the existing note",
+  );
+  assert(
+    linkPreview.includes('class="wikilink is-missing"') &&
+      linkPreview.includes('href="#/new?title=Future%20note"'),
+    "missing wikilink offers to create the note",
+  );
+  ok("wikilinks resolve and offer creation");
+
+  const folderFilter = byId(s1.window, "folder-filter");
+  folderFilter.value = "Work";
+  fire(folderFilter, "change");
+  assert(
+    s1.window.document.querySelectorAll(".note-card").length === 1 &&
+      s1.window.document.querySelector(".note-card-title").textContent === "Ideas",
+    "folder filter narrows the list",
+  );
+  folderFilter.value = "__all__";
+  fire(folderFilter, "change");
+  assert(s1.window.document.querySelectorAll(".note-card").length === 2, "filter clears");
+  ok("folder filter works");
+
+  const missingLink = s1.window.document.querySelector("#note-preview a.wikilink.is-missing");
+  assert(missingLink, "missing wikilink is rendered as a link");
+  click(missingLink);
+  await waitFor(
+    "note created from a missing wikilink",
+    () => byId(s1.window, "note-title").value === "Future note",
+  );
+  ok("clicking a missing wikilink creates the note");
+
+  click(byId(s1.window, "delete-btn"));
+  await waitFor("confirm dialog", () => byId(s1.window, "confirm-dialog").open);
+  click(byId(s1.window, "confirm-ok"));
+  await waitFor(
+    "created note deleted",
+    () => s1.window.document.querySelectorAll(".note-card").length === 2,
+  );
+  const ideasCard = [...s1.window.document.querySelectorAll(".note-card")].find(
+    (card) => card.querySelector(".note-card-title").textContent === "Ideas",
+  );
+  assert(ideasCard, "the folder note is still listed");
+  click(ideasCard);
+  await waitFor("editor", () => !byId(s1.window, "editor").hidden);
+
+  click(byId(s1.window, "delete-btn"));
+  await waitFor("confirm dialog", () => byId(s1.window, "confirm-dialog").open);
+  click(byId(s1.window, "confirm-ok"));
+  await waitFor(
+    "second note deleted",
+    () => s1.window.document.querySelectorAll(".note-card").length === 1,
+  );
+  ok("temporary folder note deleted before reload");
+
   /* ---------------------------------------------------------- session 2 -- */
   console.log("\nSession 2: reload with the same browser profile");
   const seed = [];

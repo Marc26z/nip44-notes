@@ -19,12 +19,40 @@ export function newId() {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+export function normalizeFolder(value) {
+  if (typeof value !== "string") return "";
+  return value
+    .normalize("NFKC")
+    .replace(/\\/g, "/")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .split("/")
+    .map((part) => part.trim().replace(/\s+/g, " "))
+    .filter(Boolean)
+    .join("/")
+    .slice(0, 120)
+    .replace(/^\/+|\/+$/g, "");
+}
+
+export function listFolders(notes) {
+  const seen = new Map();
+  for (const note of notes) {
+    const folder = normalizeFolder(note?.folder);
+    if (!folder) continue;
+    const key = folder.toLowerCase();
+    if (!seen.has(key)) seen.set(key, folder);
+  }
+  return [...seen.values()].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+  );
+}
+
 export function newNote(overrides = {}) {
   const now = Date.now();
   return {
     id: overrides.id ?? newId(),
     title: typeof overrides.title === "string" ? overrides.title : "",
     body: typeof overrides.body === "string" ? overrides.body : "",
+    folder: normalizeFolder(overrides.folder),
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
   };
@@ -86,7 +114,8 @@ export function noteFileName(id) {
 export async function encryptNote(note, encrypt) {
   const title = typeof note.title === "string" ? note.title : "";
   const body = typeof note.body === "string" ? note.body : "";
-  const payload = JSON.stringify({ title, body });
+  const folder = normalizeFolder(note.folder);
+  const payload = JSON.stringify({ title, body, folder });
   if (byteLength(payload) > MAX_PAYLOAD_BYTES) {
     throw new Error("This note is too large. NIP-44 messages are limited to 64 KB.");
   }
@@ -116,6 +145,7 @@ export async function decryptEnvelope(envelope, decrypt) {
     id: env.id,
     title: typeof payload.title === "string" ? payload.title : "",
     body: typeof payload.body === "string" ? payload.body : "",
+    folder: normalizeFolder(payload.folder),
     createdAt: env.createdAt,
     updatedAt: env.updatedAt,
   };
@@ -133,6 +163,10 @@ export function stripMarkdown(markdown) {
     .replace(/```[\s\S]*?```/g, "\n\n")
     .replace(/~~~[\s\S]*?~~~/g, "\n\n")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[\[([^\[\]\n]+?)\]\]/g, (_, inner) => {
+      const pipe = inner.indexOf("|");
+      return (pipe === -1 ? inner : inner.slice(pipe + 1)).trim();
+    })
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/<[^>]+>/g, " ")
     .replace(/^#{1,6}\s+/gm, "")
@@ -204,6 +238,7 @@ export function noteFromMarkdownFile(name, text, now = Date.now()) {
     id: newId(),
     title,
     body,
+    folder: "",
     createdAt: now,
     updatedAt: now,
   };
@@ -276,6 +311,42 @@ export function sortNotes(notes) {
     if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
     return deriveTitle(a).localeCompare(deriveTitle(b));
   });
+}
+
+export function normalizeWikilinkTarget(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/\.md$/i, "")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+export function buildNoteLinkIndex(notes) {
+  const index = new Map();
+  for (const note of sortNotes(notes)) {
+    const names = new Set();
+    const explicit = String(note.title || "").trim();
+    if (explicit) names.add(explicit);
+    const derived = deriveTitle(note);
+    if (derived && derived !== "Untitled") names.add(derived);
+    const folder = normalizeFolder(note.folder);
+    for (const name of names) {
+      const key = normalizeWikilinkTarget(name);
+      if (key && !index.has(key)) index.set(key, note);
+      if (folder) {
+        const pathKey = normalizeWikilinkTarget(`${folder}/${name}`);
+        if (pathKey && !index.has(pathKey)) index.set(pathKey, note);
+      }
+    }
+  }
+  return index;
+}
+
+export function resolveNoteLink(index, target) {
+  if (!(index instanceof Map)) return null;
+  const key = normalizeWikilinkTarget(target);
+  return key ? index.get(key) || null : null;
 }
 
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });

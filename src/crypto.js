@@ -113,6 +113,7 @@ export function payloadFor(note) {
     id: note.id,
     title: note.title || "",
     body: note.body || "",
+    folder: String(note.folder || ""),
     createdAt: Number(note.createdAt) || nowMs(),
     updatedAt: Number(note.updatedAt) || nowMs(),
   };
@@ -148,6 +149,7 @@ export function makeNote(fields = {}) {
     id: fields.id || randomId(),
     title: String(fields.title || ""),
     body: String(fields.body || ""),
+    folder: String(fields.folder || ""),
     createdAt: ts,
     updatedAt: Number(fields.updatedAt) || ts,
   };

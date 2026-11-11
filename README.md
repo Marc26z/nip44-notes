@@ -10,6 +10,8 @@ Available as a progressive web app and as a signed Android APK.
 - Every note is encrypted with NIP-44 before it is written to disk.
 - Notes are `.nip44` files in a folder you choose (File System Access API), or in private app storage (OPFS/IndexedDB) when no folder is available.
 - Markdown editor with live, sanitized preview.
+- Organize notes into folders (nested with `/`); folders are part of the encrypted payload.
+- Link between notes with `[[Note title]]` wiki-links; links resolve by title (or `Folder/Title`) and clicking a missing link creates the note.
 - Search, edit, and delete notes; deleted notes leave tombstones so other devices do not resurrect them.
 - Works offline; installable as a PWA.
 
@@ -48,7 +50,7 @@ npm run test:e2e  # browser end-to-end checks
 
 ## File format
 
-Each note is a small JSON envelope written to a `.nip44` file. The filename is derived from the note id, and the payload (title, body, timestamps) is encrypted with a NIP-44 conversation key between your key and itself. Files can be backed up, synced, or moved with any file tool.
+Each note is a small JSON envelope written to a `.nip44` file. The filename is derived from the note id, and the payload (title, body, folder, timestamps) is encrypted with a NIP-44 conversation key between your key and itself. Files can be backed up, synced, or moved with any file tool.
 
 ## License
 

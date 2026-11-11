@@ -13,6 +13,10 @@ import {
   clockTime,
   fullDate,
   newNote,
+  normalizeFolder,
+  listFolders,
+  buildNoteLinkIndex,
+  resolveNoteLink,
 } from "./core.js";
 import {
   loadIdentity,
@@ -94,6 +98,7 @@ const els = {
   notesView: document.getElementById("notes-view"),
   searchInput: document.getElementById("search-input"),
   clearSearchBtn: document.getElementById("clear-search-btn"),
+  folderFilter: document.getElementById("folder-filter"),
   newNoteBtn: document.getElementById("new-note-btn"),
   unreadableBanner: document.getElementById("unreadable-banner"),
   invalidBanner: document.getElementById("invalid-banner"),
@@ -115,6 +120,7 @@ const els = {
   exportBtn: document.getElementById("export-btn"),
   deleteBtn: document.getElementById("delete-btn"),
   noteTitle: document.getElementById("note-title"),
+  noteFolder: document.getElementById("note-folder"),
   tabEdit: document.getElementById("tab-edit"),
   tabPreview: document.getElementById("tab-preview"),
   markdownToolbar: document.getElementById("markdown-toolbar"),
@@ -149,6 +155,14 @@ const els = {
   confirmCancel: document.getElementById("confirm-cancel"),
   confirmOk: document.getElementById("confirm-ok"),
 
+  folderDialog: document.getElementById("folder-dialog"),
+  folderDialogTitle: document.getElementById("folder-dialog-title"),
+  folderDialogText: document.getElementById("folder-dialog-text"),
+  folderNameInput: document.getElementById("folder-name-input"),
+  folderError: document.getElementById("folder-error"),
+  folderCancel: document.getElementById("folder-cancel"),
+  folderSave: document.getElementById("folder-save"),
+
   recoveryDialog: document.getElementById("recovery-dialog"),
   recoveryNsec: document.getElementById("recovery-nsec"),
   recoveryNpub: document.getElementById("recovery-npub"),
@@ -178,6 +192,7 @@ const state = {
   draft: null,
   lastSaved: null,
   filter: "",
+  filterFolder: null,
   mode: "edit",
   unreadable: 0,
   invalid: 0,
@@ -332,10 +347,84 @@ function updateFooter() {
   els.wordCount.textContent = `${words} ${words === 1 ? "word" : "words"}`;
 }
 
+const ALL_FOLDERS = "__all__";
+const UNFILED = "__unfiled__";
+const NEW_FOLDER = "__new__";
+
+function folderToValue(folder) {
+  if (folder === null) return ALL_FOLDERS;
+  return folder || UNFILED;
+}
+
+function folderFromValue(value) {
+  if (value === ALL_FOLDERS) return null;
+  if (value === UNFILED) return "";
+  return value;
+}
+
+function knownFolders() {
+  const folders = listFolders([...state.notes.values()]);
+  if (state.filterFolder) {
+    const key = state.filterFolder.toLowerCase();
+    if (!folders.some((folder) => folder.toLowerCase() === key)) folders.push(state.filterFolder);
+  }
+  return folders.sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+  );
+}
+
+function fillFolderOptions(select, folders, value, extra = []) {
+  if (!select) return;
+  const previous = select.value;
+  select.textContent = "";
+  for (const option of extra) {
+    const node = document.createElement("option");
+    node.value = option.value;
+    node.textContent = option.label;
+    select.append(node);
+  }
+  for (const folder of folders) {
+    const node = document.createElement("option");
+    node.value = folder;
+    node.textContent = folder;
+    select.append(node);
+  }
+  select.value = value;
+  if (select.value !== value && previous) select.value = previous;
+}
+
+function renderFolderSelects() {
+  const folders = knownFolders();
+  fillFolderOptions(
+    els.folderFilter,
+    folders,
+    folderToValue(state.filterFolder),
+    [
+      { value: ALL_FOLDERS, label: "All notes" },
+      { value: UNFILED, label: "Unfiled" },
+    ],
+  );
+  const note = currentNote();
+  fillFolderOptions(els.noteFolder, folders, note ? normalizeFolder(note.folder) : "", [
+    { value: "", label: "No folder" },
+    { value: NEW_FOLDER, label: "New folder…" },
+  ]);
+}
+
+function wikilinkResolver() {
+  const index = buildNoteLinkIndex([...state.notes.values()]);
+  return (target) => {
+    const note = resolveNoteLink(index, target);
+    return note ? { id: note.id, title: deriveTitle(note) } : null;
+  };
+}
+
 function renderPreview() {
   const body = els.noteBody.value;
   try {
-    els.notePreview.innerHTML = renderMarkdown(body);
+    els.notePreview.innerHTML = renderMarkdown(body, {
+      resolveWikilink: wikilinkResolver(),
+    });
   } catch (error) {
     els.notePreview.textContent = "Could not render this Markdown.";
     console.error(error);
@@ -382,11 +471,17 @@ function scheduleListRender() {
 
 function renderList() {
   const all = sortNotes([...state.notes.values()]);
+  const folderKey = state.filterFolder === null ? null : state.filterFolder.toLowerCase();
+  const inFolder =
+    folderKey === null
+      ? all
+      : all.filter((note) => normalizeFolder(note.folder).toLowerCase() === folderKey);
   const query = state.filter.trim().toLowerCase();
   const notes = query
-    ? all.filter((note) => `${note.title}\n${note.body}`.toLowerCase().includes(query))
-    : all;
+    ? inFolder.filter((note) => `${note.title}\n${note.body}`.toLowerCase().includes(query))
+    : inFolder;
 
+  renderFolderSelects();
   clearNode(els.noteList);
   for (const note of notes) {
     const card = document.createElement("button");
@@ -412,6 +507,14 @@ function renderList() {
 
     const meta = document.createElement("div");
     meta.className = "note-card-meta";
+    const folder = normalizeFolder(note.folder);
+    if (folder) {
+      const folderMeta = document.createElement("span");
+      folderMeta.className = "note-card-folder";
+      folderMeta.append(svgUse("folder"));
+      folderMeta.append(document.createTextNode(folder));
+      meta.append(folderMeta);
+    }
     meta.append(svgUse("lock"));
     const metaText = document.createElement("span");
     metaText.textContent = state.envelopes.has(note.id) ? "NIP-44 encrypted" : "Draft";
@@ -430,11 +533,20 @@ function renderList() {
   els.noteList.hidden = empty;
   els.emptyList.hidden = !empty;
   if (empty) {
-    els.emptyTitle.textContent = query ? "No matches" : "No notes yet";
-    els.emptyText.textContent = query
-      ? `Nothing matches “${state.filter.trim()}”.`
-      : "Create your first encrypted note.";
-    els.emptyNewBtn.hidden = Boolean(query);
+    if (query) {
+      els.emptyTitle.textContent = "No matches";
+      els.emptyText.textContent = `Nothing matches “${state.filter.trim()}”.`;
+      els.emptyNewBtn.hidden = true;
+    } else if (state.filterFolder !== null) {
+      const label = state.filterFolder ? `“${state.filterFolder}”` : "Unfiled";
+      els.emptyTitle.textContent = `No notes in ${label}`;
+      els.emptyText.textContent = "Create a note here or pick another folder.";
+      els.emptyNewBtn.hidden = false;
+    } else {
+      els.emptyTitle.textContent = "No notes yet";
+      els.emptyText.textContent = "Create your first encrypted note.";
+      els.emptyNewBtn.hidden = false;
+    }
   }
 
   els.unreadableBanner.hidden = state.unreadable === 0;
@@ -650,6 +762,18 @@ async function navigateToNote(id) {
   await openNoteView(id, { fromRoute: true });
 }
 
+function defaultNewNoteFolder() {
+  return state.filterFolder === null ? "" : state.filterFolder;
+}
+
+function addDraftNote({ title = "", folder = defaultNewNoteFolder() } = {}) {
+  const note = newNote({ title, folder });
+  state.notes.set(note.id, note);
+  state.draft = note;
+  state.lastSaved = null;
+  return note;
+}
+
 async function newNoteAction() {
   if (!state.signer || !state.store) return;
   await flushSave();
@@ -657,10 +781,7 @@ async function newNoteAction() {
     await navigateToNote(state.draft.id);
     return;
   }
-  const note = newNote();
-  state.notes.set(note.id, note);
-  state.draft = note;
-  state.lastSaved = null;
+  const note = addDraftNote();
   await navigateToNote(note.id);
   setTimeout(() => {
     if (state.selectedId === note.id) els.noteTitle.focus();
@@ -668,8 +789,19 @@ async function newNoteAction() {
 }
 
 function parseRoute() {
-  const match = /^#\/n\/([0-9a-f]{8,64})$/.exec(location.hash || "");
-  return match ? { name: "note", id: match[1] } : { name: "list" };
+  const hash = location.hash || "";
+  const noteMatch = /^#\/n\/([0-9a-f]{8,64})$/.exec(hash);
+  if (noteMatch) return { name: "note", id: noteMatch[1] };
+  const newMatch = /^#\/new(?:\?([^#]*))?$/.exec(hash);
+  if (newMatch) {
+    const params = new URLSearchParams(newMatch[1] || "");
+    return {
+      name: "new",
+      title: params.get("title") || "",
+      folder: params.get("folder") || "",
+    };
+  }
+  return { name: "list" };
 }
 
 let routing = false;
@@ -683,6 +815,22 @@ async function routeOnce() {
       return;
     }
     history.replaceState(null, "", "#/");
+  }
+  if (target.name === "new") {
+    const index = buildNoteLinkIndex([...state.notes.values()]);
+    const existing = resolveNoteLink(index, target.title);
+    if (existing) {
+      history.replaceState(null, "", `#/n/${existing.id}`);
+      await openNoteView(existing.id, { fromRoute: true });
+      return;
+    }
+    const note = addDraftNote({
+      title: target.title,
+      folder: target.folder || defaultNewNoteFolder(),
+    });
+    history.replaceState(null, "", `#/n/${note.id}`);
+    await openNoteView(note.id, { fromRoute: true });
+    return;
   }
   await showList({ fromRoute: true });
 }
@@ -968,6 +1116,7 @@ function resetSession() {
   state.unreadable = 0;
   state.invalid = 0;
   state.filter = "";
+  state.filterFolder = null;
   state.savePromise = Promise.resolve();
   els.searchInput.value = "";
   els.clearSearchBtn.hidden = true;
@@ -1021,6 +1170,94 @@ function confirmAction({ title, text, okText = "Confirm", danger = false }) {
     els.confirmDialog.addEventListener("close", onClose);
     els.confirmDialog.showModal();
   });
+}
+
+function promptFolderName({
+  title = "New folder",
+  text = "Give the folder a name. You can use “/” for nested folders.",
+  okText = "Create folder",
+  initial = "",
+} = {}) {
+  return new Promise((resolve) => {
+    if (els.folderDialog.open) {
+      resolve(null);
+      return;
+    }
+    let settled = false;
+    const cleanup = () => {
+      els.folderDialog.removeEventListener("cancel", onCancel);
+      els.folderDialog.removeEventListener("close", onClose);
+      els.folderSave.removeEventListener("click", onSubmit);
+      els.folderCancel.removeEventListener("click", onCancel);
+      els.folderNameInput.removeEventListener("keydown", onKeyDown);
+    };
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (els.folderDialog.open) els.folderDialog.close();
+      resolve(value);
+    };
+    const onCancel = (event) => {
+      event?.preventDefault?.();
+      finish(null);
+    };
+    const onClose = () => finish(null);
+    const onSubmit = (event) => {
+      event?.preventDefault?.();
+      const typed = normalizeFolder(els.folderNameInput.value);
+      if (!typed) {
+        els.folderError.textContent = "Enter a folder name.";
+        els.folderError.hidden = false;
+        els.folderNameInput.focus();
+        return;
+      }
+      const existing = knownFolders().find(
+        (folder) => folder.toLowerCase() === typed.toLowerCase(),
+      );
+      finish(existing || typed);
+    };
+    const onKeyDown = (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      onSubmit(event);
+    };
+
+    els.folderDialogTitle.textContent = title;
+    els.folderDialogText.textContent = text;
+    els.folderSave.textContent = okText;
+    els.folderNameInput.value = initial;
+    els.folderError.hidden = true;
+    els.folderDialog.addEventListener("cancel", onCancel);
+    els.folderDialog.addEventListener("close", onClose);
+    els.folderSave.addEventListener("click", onSubmit);
+    els.folderCancel.addEventListener("click", onCancel);
+    els.folderNameInput.addEventListener("keydown", onKeyDown);
+    els.folderDialog.showModal();
+    setTimeout(() => {
+      els.folderNameInput.focus();
+      els.folderNameInput.select();
+    }, 30);
+  });
+}
+
+function assignFolder(folder) {
+  const note = currentNote();
+  if (!note) return;
+  const next = normalizeFolder(folder);
+  if (normalizeFolder(note.folder) === next) return;
+  note.folder = next;
+  setSaveState("unsaved", "Unsaved");
+  scheduleListRender();
+  scheduleSave();
+}
+
+async function createFolderForNote() {
+  const note = currentNote();
+  if (!note) return;
+  els.noteFolder.value = normalizeFolder(note.folder);
+  const name = await promptFolderName();
+  if (name) assignFolder(name);
 }
 
 async function signOut() {
@@ -1500,6 +1737,19 @@ function setupEvents() {
     els.searchInput.value = "";
     onSearch();
     els.searchInput.focus();
+  });
+
+  els.folderFilter.addEventListener("change", () => {
+    state.filterFolder = folderFromValue(els.folderFilter.value);
+    renderList();
+  });
+
+  els.noteFolder.addEventListener("change", () => {
+    if (els.noteFolder.value === NEW_FOLDER) {
+      void createFolderForNote();
+      return;
+    }
+    assignFolder(els.noteFolder.value);
   });
 
   els.noteTitle.addEventListener("input", onEditorInput);

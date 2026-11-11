@@ -27,6 +27,10 @@ import {
   mergeEnvelopes,
   sortNotes,
   relativeTime,
+  normalizeFolder,
+  listFolders,
+  buildNoteLinkIndex,
+  resolveNoteLink,
 } from "../src/core.js";
 
 const secret = generateSecretKey();
@@ -88,9 +92,31 @@ test("NIP-44 note encryption round-trips", async () => {
     id: note.id,
     title: "Secret",
     body: "**hello**",
+    folder: "",
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
   });
+});
+
+test("notes keep a normalized folder in the encrypted payload", async () => {
+  const note = newNote({ title: "Quarterly", body: "Numbers", folder: " Work / 2026 // " });
+  assert.equal(note.folder, "Work/2026");
+  const env = await encryptNote(note, encryptFn);
+  const restored = await decryptEnvelope(env, decryptFn);
+  assert.equal(restored.folder, "Work/2026");
+});
+
+test("folders are listed case-insensitively in stable order", () => {
+  const notes = [
+    { folder: "Work" },
+    { folder: "work" },
+    { folder: "Archive/2025" },
+    { folder: "" },
+    { folder: "Personal" },
+  ];
+  assert.deepEqual(listFolders(notes), ["Archive/2025", "Personal", "Work"]);
+  assert.equal(normalizeFolder("  a\\b / c  "), "a/b/c");
+  assert.equal(normalizeFolder(null), "");
 });
 
 test("encryptNote rejects oversized payloads", async () => {
@@ -121,12 +147,34 @@ test("markdown files become notes", () => {
   const note = noteFromMarkdownFile("My File.md", "# Real title\n\nBody text\n", 5000);
   assert.equal(note.title, "Real title");
   assert.equal(note.body, "Body text\n");
+  assert.equal(note.folder, "");
   assert.equal(note.createdAt, 5000);
   assert.match(note.id, /^[0-9a-f]{16}$/);
 
   const plain = noteFromMarkdownFile("Shopping.md", "- milk\n- eggs\n", 6000);
   assert.equal(plain.title, "Shopping");
   assert.equal(plain.body, "- milk\n- eggs\n");
+});
+
+test("wikilinks are stripped for titles and excerpts", () => {
+  assert.equal(
+    stripMarkdown("See [[Other note|that note]] and [[Plain]]"),
+    "See that note and Plain",
+  );
+  assert.equal(deriveTitle({ title: "", body: "[[Linked|Shown]]" }), "Shown");
+});
+
+test("note links resolve by title, derived title, and folder path", () => {
+  const notes = [
+    { id: "a", title: "Alpha", body: "", folder: "Work", createdAt: 1, updatedAt: 3 },
+    { id: "b", title: "", body: "# Beta\n\nText", folder: "", createdAt: 1, updatedAt: 2 },
+  ];
+  const index = buildNoteLinkIndex(notes);
+  assert.equal(resolveNoteLink(index, "alpha").id, "a");
+  assert.equal(resolveNoteLink(index, "Alpha.md").id, "a");
+  assert.equal(resolveNoteLink(index, "work/alpha").id, "a");
+  assert.equal(resolveNoteLink(index, "Beta").id, "b");
+  assert.equal(resolveNoteLink(index, "missing"), null);
 });
 
 test("backups round-trip and validate", () => {

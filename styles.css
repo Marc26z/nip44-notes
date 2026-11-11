@@ -650,6 +650,36 @@ main {
   outline: none;
 }
 
+.folder-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.folder-wrap > .icon {
+  position: absolute;
+  left: 11px;
+  width: 1em;
+  height: 1em;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.folder-select {
+  width: 100%;
+  padding: 8px 26px 8px 34px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-2);
+  font-size: 0.8rem;
+}
+
+.folder-select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
 .clear-search {
   position: absolute;
   right: 5px;
@@ -803,6 +833,16 @@ main {
   height: 0.95em;
 }
 
+.note-card-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+  max-width: 55%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .empty-list {
   display: flex;
   flex: 1;
@@ -952,6 +992,37 @@ main {
   opacity: 0.75;
 }
 
+.note-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 24px 6px;
+  color: var(--text-3);
+}
+
+.note-folder-row .icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.note-folder-select {
+  max-width: min(300px, 100%);
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+}
+
+.note-folder-select:hover,
+.note-folder-select:focus {
+  border-color: var(--border);
+  background: var(--surface-2);
+  outline: none;
+}
+
 .editor-tabs {
   display: flex;
   gap: 3px;
@@ -1088,6 +1159,22 @@ main {
 
 .markdown a:hover {
   text-decoration-thickness: 2px;
+}
+
+.markdown .wikilink {
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.markdown .wikilink.is-missing {
+  border-bottom: 1px dashed var(--border-strong);
+  color: var(--text-3);
+  text-decoration: none;
+}
+
+.markdown .wikilink.is-missing:hover {
+  border-bottom-color: var(--warm);
+  color: var(--warm);
 }
 
 .markdown code {
@@ -1327,6 +1414,15 @@ main {
   width: min(420px, calc(100vw - 28px));
 }
 
+.folder-dialog {
+  width: min(420px, calc(100vw - 28px));
+}
+
+.folder-dialog .input {
+  width: 100%;
+  margin-top: 6px;
+}
+
 .confirm-text {
   margin: 0 0 20px;
   color: var(--text-2);
@@ -1509,6 +1605,10 @@ main {
   .note-title {
     padding: 10px 18px 2px;
     font-size: 1.65rem;
+  }
+
+  .note-folder-row {
+    padding: 0 18px 4px;
   }
 
   .editor-topbar {
