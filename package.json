@@ -1,0 +1,26 @@
+{
+  "name": "nip44-notes",
+  "version": "0.01",
+  "description": "Markdown notes encrypted with NIP-44 and stored as files.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "serve": "node scripts/serve.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "node scripts/e2e.mjs",
+    "apk": "bash scripts/build-apk.sh"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.17",
+    "marked": "^18.2.0",
+    "nostr-tools": "^2.26.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "jsdom": "^27.0.0",
+    "playwright-core": "^1.55.0"
+  }
+}

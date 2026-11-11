@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+dist/
+*.apk
+*.p12
+*.pem
+*.jks
+.keystore-password
+.env
