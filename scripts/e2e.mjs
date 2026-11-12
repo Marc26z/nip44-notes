@@ -25,8 +25,9 @@ const TEST_RELAY = "wss://relay.test";
 const relayEvents = new Map();
 
 function eventsAt(url) {
-  if (!relayEvents.has(url)) relayEvents.set(url, []);
-  return relayEvents.get(url);
+  const key = String(url).replace(/\/$/, "");
+  if (!relayEvents.has(key)) relayEvents.set(key, []);
+  return relayEvents.get(key);
 }
 
 function matchesFilter(event, filter) {
