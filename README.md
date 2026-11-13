@@ -1,5 +1,9 @@
 # NIP44 Notes
 
+I had my clanker build an Android note app that uses wiki to create new notes like Obsidian, but it uses NIP44 as the backend for redundancy without the hassle of running servers or complex RAID set ups.
+
+It also works as a progressive website.
+
 Markdown notes encrypted with [NIP-44](https://github.com/nostr-protocol/nips/blob/master/44.md) and stored as ordinary files you control. No account and no server: the key never leaves the device.
 
 Available as a progressive web app and as a signed Android APK.
