@@ -99,6 +99,7 @@
               </form>
               <p id="import-error" class="form-error" hidden></p>
             </details>
+            <button id="signer-btn" class="btn btn-block" type="button">Use Amber or another signer app</button>
             <button id="nip07-btn" class="btn btn-block" type="button" hidden>Use browser extension</button>
           </div>
           <ul class="auth-points">
@@ -248,6 +249,28 @@
       </section>
     </main>
   </div>
+
+  <dialog id="signer-dialog" class="dialog signer-dialog">
+    <form method="dialog" class="dialog-head">
+      <h2>Sign in with a signer</h2>
+      <button class="icon-btn" value="close" aria-label="Close signer sign-in"><svg class="icon"><use href="#i-x"></use></svg></button>
+    </form>
+    <div class="dialog-body">
+      <p class="hint signer-intro">Keep your key in Amber (or another NIP-46 signer). Scan the code or open the link, then approve the connection on your device.</p>
+      <div id="signer-qr" class="qr-wrap" aria-label="Signer connection QR code"></div>
+      <a id="signer-open" class="btn btn-primary btn-block" href="#" rel="noopener">Open in signer app</a>
+      <p id="signer-status" class="signer-status">Waiting for approval…</p>
+      <details class="import-box">
+        <summary>Or paste a bunker:// link</summary>
+        <form id="bunker-form" class="import-form">
+          <label class="sr-only" for="bunker-input">Bunker connection string</label>
+          <input id="bunker-input" class="input mono" type="text" placeholder="bunker://…" autocomplete="off" spellcheck="false">
+          <button class="btn" type="submit">Connect</button>
+        </form>
+      </details>
+      <p id="signer-error" class="form-error" hidden></p>
+    </div>
+  </dialog>
 
   <dialog id="settings-dialog" class="dialog settings-dialog">
     <form method="dialog" class="dialog-head">

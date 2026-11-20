@@ -10,7 +10,7 @@ Available as a progressive web app and as a signed Android APK.
 
 ## Features
 
-- Create a new Nostr key, import an `nsec`, or use a NIP-07 browser signer with NIP-44 support.
+- Create a new Nostr key, import an `nsec`, use a NIP-07 browser extension, or sign in with Amber / another NIP-46 signer app (scan a `nostrconnect://` code or paste a `bunker://` link). All signers need NIP-44 support.
 - Every note is encrypted with NIP-44 before it is written to disk.
 - Notes are `.nip44` files in a folder you choose (File System Access API), or in private app storage (OPFS/IndexedDB) when no folder is available.
 - Markdown editor with live, sanitized preview.
@@ -19,6 +19,10 @@ Available as a progressive web app and as a signed Android APK.
 - Search, edit, and delete notes; deleted notes leave tombstones so other devices do not resurrect them.
 - Optional relay sync: notes are published as encrypted NIP-78 events and merged across devices that use the same key and relays. Add or change relays in Settings.
 - Works offline; installable as a PWA.
+
+## Signing in with a signer app
+
+Choose **Use Amber or another signer app** on the first screen. Scan the QR code with Amber (or tap **Open in signer app** on the same device) and approve the connection. You can also paste a `bunker://` link from your signer. The app asks only for public key, event signing and NIP-44 encrypt/decrypt permissions; your secret key stays in the signer app. The approved session is remembered in this browser, and **Sign out** disconnects it.
 
 ## Run the web app
 

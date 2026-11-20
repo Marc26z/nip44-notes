@@ -28,8 +28,13 @@ import {
   importNsec,
   nip07Available,
   connectNip07,
+  createNostrConnectSession,
+  awaitNostrConnect,
+  connectBunker,
+  closeSignerSession,
   makeSigner,
 } from "./identity.js";
+import { qrSvg } from "./qr.js";
 import {
   setStoragePref,
   folderPickerSupported,
@@ -83,6 +88,14 @@ const els = {
   importForm: document.getElementById("import-form"),
   nsecInput: document.getElementById("nsec-input"),
   importError: document.getElementById("import-error"),
+  signerBtn: document.getElementById("signer-btn"),
+  signerDialog: document.getElementById("signer-dialog"),
+  signerQr: document.getElementById("signer-qr"),
+  signerOpen: document.getElementById("signer-open"),
+  signerStatus: document.getElementById("signer-status"),
+  bunkerForm: document.getElementById("bunker-form"),
+  bunkerInput: document.getElementById("bunker-input"),
+  signerError: document.getElementById("signer-error"),
   nip07Btn: document.getElementById("nip07-btn"),
 
   storageView: document.getElementById("storage-view"),
@@ -186,6 +199,7 @@ const els = {
 const state = {
   identity: null,
   signer: null,
+  signerAbort: null,
   pendingIdentity: null,
   pendingHandle: null,
   store: null,
@@ -1223,7 +1237,7 @@ async function enterApp(identity) {
   } catch (error) {
     toast(error?.message || "Your signer is not available.", "error", 7000);
     showView("auth");
-    return;
+    return false;
   }
   saveIdentity(identity);
   state.identity = identity;
@@ -1232,6 +1246,44 @@ async function enterApp(identity) {
   showView("boot");
   setBootText("Finding your notes…");
   await resolveStorage();
+  return true;
+}
+
+function stopSignerConnect() {
+  if (!state.signerAbort) return;
+  state.signerAbort.abort();
+  state.signerAbort = null;
+}
+
+async function finishSignerLogin(identity) {
+  const entered = await enterApp(identity);
+  if (!entered) return;
+  stopSignerConnect();
+  if (els.signerDialog.open) els.signerDialog.close();
+  toast("Signed in with your signer.", "info", 5000);
+}
+
+function openSignerDialog() {
+  stopSignerConnect();
+  const session = createNostrConnectSession();
+  const controller = new AbortController();
+  state.signerAbort = controller;
+  els.signerQr.innerHTML = qrSvg(session.uri, { cellSize: 5, margin: 2 });
+  els.signerOpen.href = session.uri;
+  els.signerError.hidden = true;
+  els.signerStatus.textContent = "Waiting for approval…";
+  if (!els.signerDialog.open) els.signerDialog.showModal();
+  void awaitNostrConnect(session, { signal: controller.signal })
+    .then((identity) => finishSignerLogin(identity))
+    .catch((error) => {
+      if (controller.signal.aborted) return;
+      els.signerError.textContent = error?.message || "Could not connect to the signer";
+      els.signerError.hidden = false;
+      els.signerStatus.textContent = "Connection failed — try again or paste a bunker:// link.";
+    })
+    .finally(() => {
+      if (state.signerAbort === controller) state.signerAbort = null;
+    });
 }
 
 function hideNsec() {
@@ -1274,7 +1326,9 @@ function fillSettings() {
   els.revealNsecBtn.textContent = state.nsecRevealed ? "Hide secret" : "Reveal secret";
   els.identityHint.textContent = local
     ? "Your key is stored in this browser. Back it up — without it, notes cannot be decrypted."
-    : "Your key is managed by your browser extension. It must support NIP-44 decryption.";
+    : state.identity.type === "nip46"
+      ? "Your key stays in your signer app (NIP-46). It must support NIP-44 encryption and decryption."
+      : "Your key is managed by your browser extension. It must support NIP-44 decryption.";
 
   const info = state.storeInfo;
   els.settingsStorage.textContent = info ? `${info.label} · ${info.detail}` : "…";
@@ -1494,6 +1548,7 @@ async function signOut() {
   if (!ok) return;
   await flushSave();
   await state.savePromise.catch(() => {});
+  await closeSignerSession();
   clearIdentity();
   resetSession();
   if (els.settingsDialog.open) els.settingsDialog.close();
@@ -1922,6 +1977,30 @@ function setupEvents() {
       await enterApp(identity);
     } catch (error) {
       toast(error?.message || "Could not connect to the extension.", "error", 7000);
+    }
+  });
+
+  els.signerBtn.addEventListener("click", openSignerDialog);
+  els.signerDialog.addEventListener("close", stopSignerConnect);
+  els.bunkerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const value = els.bunkerInput.value.trim();
+    if (!value) return;
+    stopSignerConnect();
+    const button = event.submitter || els.bunkerForm.querySelector("button");
+    button.disabled = true;
+    els.signerError.hidden = true;
+    els.signerStatus.textContent = "Connecting…";
+    try {
+      const identity = await connectBunker(value);
+      await finishSignerLogin(identity);
+      els.bunkerInput.value = "";
+    } catch (error) {
+      els.signerError.textContent = error?.message || "Could not connect to the signer";
+      els.signerError.hidden = false;
+      els.signerStatus.textContent = "Waiting for approval…";
+    } finally {
+      button.disabled = false;
     }
   });
 

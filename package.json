@@ -16,7 +16,8 @@
   "dependencies": {
     "dompurify": "^3.4.17",
     "marked": "^18.2.0",
-    "nostr-tools": "^2.26.0"
+    "nostr-tools": "^2.26.0",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

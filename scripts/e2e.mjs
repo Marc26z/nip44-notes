@@ -199,6 +199,26 @@ async function main() {
   await waitFor("auth view", () => !byId(s1.window, "auth-view").hidden);
   ok("boots to the key screen");
 
+  click(byId(s1.window, "signer-btn"));
+  await waitFor("signer dialog", () => byId(s1.window, "signer-dialog").open);
+  ok("signer dialog opens");
+  assert(
+    Boolean(byId(s1.window, "signer-qr").querySelector("svg")),
+    "signer QR code renders",
+  );
+  assert(
+    /^nostrconnect:\/\//.test(byId(s1.window, "signer-open").getAttribute("href")),
+    "signer deep link is a nostrconnect URI",
+  );
+  fire(byId(s1.window, "bunker-input"), "input", "not-a-bunker");
+  byId(s1.window, "bunker-form").dispatchEvent(
+    new s1.window.Event("submit", { bubbles: true, cancelable: true }),
+  );
+  await waitFor("bunker error", () => !byId(s1.window, "signer-error").hidden);
+  ok("invalid bunker links show an error");
+  byId(s1.window, "signer-dialog").close();
+  await waitFor("signer dialog closed", () => !byId(s1.window, "signer-dialog").open);
+
   click(byId(s1.window, "create-key-btn"));
   await waitFor("recovery dialog", () => byId(s1.window, "recovery-dialog").open);
   const nsec = byId(s1.window, "recovery-nsec").textContent;

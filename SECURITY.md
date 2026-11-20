@@ -30,7 +30,7 @@ f302hDDIrQDP5ybMFu/xFhnHmzIGtOy84N6H7YEA
 
 ## Scope
 
-The app's whole promise is that notes are encrypted in the page with NIP-44 before anything is written to disk, and that the key never leaves the device. Anything that leaks plaintext, key material, or weakens that promise is in scope — as are the web app, the APK wrapper, and the build itself.
+The app's whole promise is that notes are encrypted in the page with NIP-44 before anything is written to disk, and that the key never leaves the device. With a NIP-07 or NIP-46 signer (such as Amber), the secret key stays in the signer; only signing and encryption requests reach it. Anything that leaks plaintext, key material, or weakens that promise is in scope — as are the web app, the APK wrapper, and the build itself.
 
 ## What to expect
 
