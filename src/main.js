@@ -1981,6 +1981,38 @@ function prefixLines(prefix) {
   onEditorInput();
 }
 
+function applyChecklist() {
+  const area = els.noteBody;
+  const start = area.selectionStart;
+  const end = area.selectionEnd;
+  const value = area.value;
+  const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+  let lineEnd = value.indexOf("\n", end);
+  if (lineEnd === -1) lineEnd = value.length;
+  const block = value.slice(lineStart, lineEnd);
+  const emptyLine = start === end && block.trim() === "";
+  const next = block
+    .split("\n")
+    .map((line) => {
+      const task = /^(\s*)(?:[-*+]\s+)?\[([ xX])\](\s*)/.exec(line);
+      if (!task) return `- [ ] ${line}`;
+      const marker = /x/i.test(task[2]) ? " " : "X";
+      return `${task[1]}- [${marker}]${task[3]}${line.slice(task[0].length)}`;
+    })
+    .join("\n");
+  area.value = value.slice(0, lineStart) + next + value.slice(lineEnd);
+  area.focus();
+  if (emptyLine) {
+    const caret = lineStart + next.length;
+    area.selectionStart = caret;
+    area.selectionEnd = caret;
+  } else {
+    area.selectionStart = lineStart;
+    area.selectionEnd = lineStart + next.length;
+  }
+  onEditorInput();
+}
+
 function insertLink() {
   const area = els.noteBody;
   const start = area.selectionStart;
@@ -2010,6 +2042,9 @@ function applyMarkdown(action) {
       break;
     case "list":
       prefixLines("- ");
+      break;
+    case "checklist":
+      applyChecklist();
       break;
     case "quote":
       prefixLines("> ");

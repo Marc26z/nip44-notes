@@ -47,6 +47,34 @@ test("keeps safe data images and disables task checkboxes", () => {
   assert.match(html, /disabled/);
 });
 
+function checkboxStates(html) {
+  const doc = new dom.window.DOMParser().parseFromString(html, "text/html");
+  return [...doc.querySelectorAll('input[type="checkbox"]')].map((box) => ({
+    checked: box.checked,
+    disabled: box.disabled,
+  }));
+}
+
+test("renders [ ] and [X] task markers as unchecked and checked boxes", () => {
+  const states = checkboxStates(renderMarkdown("- [ ] todo\n- [x] done\n- [X] DONE"));
+  assert.deepEqual(states, [
+    { checked: false, disabled: true },
+    { checked: true, disabled: true },
+    { checked: true, disabled: true },
+  ]);
+});
+
+test("renders bare [ ] and [X] lines as checklists but leaves code alone", () => {
+  const html = renderMarkdown("[ ] todo\n[X] done\n\n```\n[ ] literal\n[X] literal\n```");
+  assert.deepEqual(checkboxStates(html), [
+    { checked: false, disabled: true },
+    { checked: true, disabled: true },
+  ]);
+  const code = new dom.window.DOMParser().parseFromString(html, "text/html").querySelector("pre code");
+  assert.match(code.textContent, /\[ \] literal/);
+  assert.match(code.textContent, /\[X\] literal/);
+});
+
 test("empty Markdown renders nothing", () => {
   assert.equal(renderMarkdown(""), "");
   assert.equal(renderMarkdown("   \n"), "");

@@ -13,6 +13,25 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
 }
 
+function normalizeChecklists(source) {
+  let fence = null;
+  return source
+    .split("\n")
+    .map((line) => {
+      const opener = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+      if (opener) {
+        const marker = opener[1][0];
+        const length = opener[1].length;
+        if (!fence) fence = { marker, length };
+        else if (marker === fence.marker && length >= fence.length) fence = null;
+        return line;
+      }
+      if (fence) return line;
+      return line.replace(/^ {0,3}\[([ xX])\](?=[ \t]+\S)/, (_, marker) => `- [${marker}]`);
+    })
+    .join("\n");
+}
+
 function parseWikilink(source) {
   const match = /^\[\[([^\[\]\n]+?)\]\]/.exec(source);
   if (!match) return null;
@@ -167,7 +186,7 @@ export function initMarkdown(win) {
 export function renderMarkdown(markdown, options = {}) {
   const text = String(markdown ?? "");
   if (!text.trim()) return "";
-  const html = marked.parse(text, { async: false, ...options });
+  const html = marked.parse(normalizeChecklists(text), { async: false, ...options });
   return ensurePurifier().sanitize(String(html), {
     ALLOWED_TAGS: TAGS,
     ALLOWED_ATTR: ATTRS,

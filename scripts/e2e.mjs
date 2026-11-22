@@ -505,6 +505,26 @@ async function main() {
   );
   ok("note deleted with a tombstone");
 
+  /* --------------------------------------------------------- checklists -- */
+  console.log("\nChecklists");
+  click(byId(s2.window, "new-note-btn"));
+  await waitFor("editor", () => !byId(s2.window, "editor").hidden);
+  const body = byId(s2.window, "note-body");
+  fire(body, "input", "milk");
+  const checklistButton = s2.window.document.querySelector('[data-md="checklist"]');
+  assert(checklistButton, "checklist button exists in the toolbar");
+  click(checklistButton);
+  assert(body.value === "- [ ] milk", `checklist button inserts [ ] (got ${body.value})`);
+  click(checklistButton);
+  assert(body.value === "- [X] milk", `checklist button toggles to [X] (got ${body.value})`);
+  click(byId(s2.window, "tab-preview"));
+  await waitFor("checklist preview", () => !byId(s2.window, "note-preview").hidden);
+  assert(
+    byId(s2.window, "note-preview").querySelector('input[type="checkbox"]')?.checked === true,
+    "[X] renders as a checked box",
+  );
+  ok("checklist button and [ ] / [X] syntax work");
+
   const scriptErrors = [...s1.errors, ...s2.errors, ...otherDevice.errors];
   assert(scriptErrors.length === 0, `no script errors (got: ${scriptErrors.join("; ")})`);
 
