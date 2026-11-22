@@ -26,6 +26,7 @@ import {
   parseBackup,
   mergeEnvelopes,
   sortNotes,
+  findHomeNote,
   relativeTime,
   normalizeFolder,
   listFolders,
@@ -93,9 +94,42 @@ test("NIP-44 note encryption round-trips", async () => {
     title: "Secret",
     body: "**hello**",
     folder: "",
+    isHome: false,
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
   });
+});
+
+test("the home flag is encrypted with the note and defaults to false", async () => {
+  const note = newNote({ title: "Home", body: "Pinned", isHome: true });
+  assert.equal(note.isHome, true);
+  const env = await encryptNote(note, encryptFn);
+  assert.ok(!JSON.stringify(env).includes("Pinned"));
+  const restored = await decryptEnvelope(env, decryptFn);
+  assert.equal(restored.isHome, true);
+
+  const legacy = await encryptFn(JSON.stringify({ title: "Old", body: "", folder: "" }));
+  const legacyNote = await decryptEnvelope(
+    envelope({ id: "abcdef0123456789", ciphertext: legacy }),
+    decryptFn,
+  );
+  assert.equal(legacyNote.isHome, false);
+});
+
+test("findHomeNote picks one home note deterministically", () => {
+  const notes = [
+    { id: "a", isHome: true, updatedAt: 100 },
+    { id: "b", isHome: false, updatedAt: 500 },
+    { id: "c", isHome: true, updatedAt: 200 },
+  ];
+  assert.equal(findHomeNote(notes).id, "c");
+  assert.equal(findHomeNote([notes[1]]), null);
+  assert.equal(findHomeNote([]), null);
+  const tied = [
+    { id: "a", isHome: true, updatedAt: 100 },
+    { id: "b", isHome: true, updatedAt: 100 },
+  ];
+  assert.equal(findHomeNote(tied).id, "b");
 });
 
 test("notes keep a normalized folder in the encrypted payload", async () => {

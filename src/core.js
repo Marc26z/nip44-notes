@@ -53,6 +53,7 @@ export function newNote(overrides = {}) {
     title: typeof overrides.title === "string" ? overrides.title : "",
     body: typeof overrides.body === "string" ? overrides.body : "",
     folder: normalizeFolder(overrides.folder),
+    isHome: overrides.isHome === true,
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
   };
@@ -115,7 +116,8 @@ export async function encryptNote(note, encrypt) {
   const title = typeof note.title === "string" ? note.title : "";
   const body = typeof note.body === "string" ? note.body : "";
   const folder = normalizeFolder(note.folder);
-  const payload = JSON.stringify({ title, body, folder });
+  const isHome = note.isHome === true;
+  const payload = JSON.stringify({ title, body, folder, isHome });
   if (byteLength(payload) > MAX_PAYLOAD_BYTES) {
     throw new Error("This note is too large. NIP-44 messages are limited to 64 KB.");
   }
@@ -146,6 +148,7 @@ export async function decryptEnvelope(envelope, decrypt) {
     title: typeof payload.title === "string" ? payload.title : "",
     body: typeof payload.body === "string" ? payload.body : "",
     folder: normalizeFolder(payload.folder),
+    isHome: payload.isHome === true,
     createdAt: env.createdAt,
     updatedAt: env.updatedAt,
   };
@@ -239,6 +242,7 @@ export function noteFromMarkdownFile(name, text, now = Date.now()) {
     title,
     body,
     folder: "",
+    isHome: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -311,6 +315,21 @@ export function sortNotes(notes) {
     if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
     return deriveTitle(a).localeCompare(deriveTitle(b));
   });
+}
+
+export function findHomeNote(notes) {
+  let home = null;
+  for (const note of notes) {
+    if (!note || note.isHome !== true) continue;
+    if (
+      !home ||
+      note.updatedAt > home.updatedAt ||
+      (note.updatedAt === home.updatedAt && String(note.id) > String(home.id))
+    ) {
+      home = note;
+    }
+  }
+  return home;
 }
 
 export function normalizeWikilinkTarget(value) {

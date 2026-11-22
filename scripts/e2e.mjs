@@ -276,6 +276,29 @@ async function main() {
   );
   ok("encrypted note published to the relay");
 
+  /* ------------------------------------------------------------ home note -- */
+  console.log("\nHome note");
+  const beforeHome = s1.window.localStorage.getItem(fileKey);
+  click(byId(s1.window, "home-btn"));
+  await waitFor("home bar", () => !byId(s1.window, "home-bar").hidden);
+  assert(
+    byId(s1.window, "home-title").textContent === "Shopping list",
+    "home bar shows the home note title",
+  );
+  assert(
+    byId(s1.window, "home-btn").getAttribute("aria-pressed") === "true",
+    "editor home button shows the active state",
+  );
+  assert(
+    s1.window.localStorage.getItem(fileKey) !== beforeHome,
+    "the encrypted file was rewritten with the home flag",
+  );
+  assert(
+    s1.window.document.querySelector(".note-card-home"),
+    "the list marks the home note",
+  );
+  ok("home note is pinned at the top of the app");
+
   click(byId(s1.window, "tab-preview"));
   await waitFor("preview", () => !byId(s1.window, "note-preview").hidden);
   const preview = byId(s1.window, "note-preview").innerHTML;
@@ -311,6 +334,14 @@ async function main() {
     byId(s1.window, "save-text").textContent.startsWith("Saved"),
   );
   ok("note moved into a new folder");
+
+  click(byId(s1.window, "home-btn"));
+  await waitFor("home note switched", () => byId(s1.window, "home-title").textContent === "Ideas");
+  assert(
+    s1.window.document.querySelectorAll(".note-card-home").length === 1,
+    "only one note is marked as home",
+  );
+  ok("a different note becomes the single home note");
 
   click(byId(s1.window, "tab-preview"));
   await waitFor("preview", () => !byId(s1.window, "note-preview").hidden);
@@ -369,6 +400,7 @@ async function main() {
     "second note deleted",
     () => s1.window.document.querySelectorAll(".note-card").length === 1,
   );
+  assert(byId(s1.window, "home-bar").hidden, "deleting the home note clears the home bar");
   ok("temporary folder note deleted before reload");
 
   /* ---------------------------------------------------------- session 2 -- */
@@ -402,6 +434,15 @@ async function main() {
   assert(byId(s2.window, "note-body").value === NOTE_BODY, "body round-trips");
   assert(byId(s2.window, "save-status").dataset.state === "saved", "note is not a draft");
   ok("editor restores the note");
+
+  assert(byId(s2.window, "home-bar").hidden, "an unflagged note is not shown as home after reload");
+  click(byId(s2.window, "home-btn"));
+  await waitFor("home note after reload", () => !byId(s2.window, "home-bar").hidden);
+  assert(
+    byId(s2.window, "home-title").textContent === "Shopping list",
+    "the reloaded note can be made home again",
+  );
+  ok("home note state survives a reload");
 
   /* --------------------------------------------------- another device -- */
   console.log("\nSession 2b: another device with the same key");
@@ -455,6 +496,7 @@ async function main() {
   assert(s2.window.localStorage.getItem(fileKey) === null, "file removed from storage");
   assert(byId(s2.window, "editor").hidden, "editor closes");
   assert(byId(s2.window, "empty-title").textContent === "No notes yet", "empty state copy");
+  assert(byId(s2.window, "home-bar").hidden, "home bar follows the last note out");
   const identity = JSON.parse(s2.window.localStorage.getItem("nip44notes.identity.v1"));
   const tombstones = JSON.parse(s2.window.localStorage.getItem("nip44notes.deleted.v1"));
   assert(

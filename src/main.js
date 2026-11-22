@@ -9,6 +9,7 @@ import {
   isMarkdownFileName,
   noteFromMarkdownFile,
   sortNotes,
+  findHomeNote,
   relativeTime,
   clockTime,
   fullDate,
@@ -111,6 +112,10 @@ const els = {
   reconnectError: document.getElementById("reconnect-error"),
 
   notesView: document.getElementById("notes-view"),
+  homeBar: document.getElementById("home-bar"),
+  homeTitle: document.getElementById("home-title"),
+  homeExcerpt: document.getElementById("home-excerpt"),
+  homeBtn: document.getElementById("home-btn"),
   searchInput: document.getElementById("search-input"),
   clearSearchBtn: document.getElementById("clear-search-btn"),
   folderFilter: document.getElementById("folder-filter"),
@@ -262,7 +267,9 @@ function isEmptyNote(note) {
 }
 
 function contentSnapshot(note) {
-  return `${note.title || ""}\u0000${note.body || ""}`;
+  return `${note.title || ""}\u0000${note.body || ""}\u0000${normalizeFolder(note.folder)}\u0000${
+    note.isHome === true ? "1" : "0"
+  }`;
 }
 
 function tombstoneKey(id) {
@@ -685,6 +692,7 @@ function fillEditor(note) {
   updateFooter();
   const saved = state.envelopes.has(note.id);
   setSaveState("saved", saved ? `Saved ${clockTime(note.updatedAt)}` : "Draft");
+  updateHomeButton();
 }
 
 function scheduleListRender() {
@@ -693,6 +701,29 @@ function scheduleListRender() {
     state.listTimer = 0;
     renderList();
   }, 120);
+}
+
+function updateHomeButton() {
+  const note = currentNote();
+  const active = note?.isHome === true;
+  els.homeBtn.classList.toggle("is-active", active);
+  els.homeBtn.setAttribute("aria-pressed", String(active));
+  els.homeBtn.setAttribute("aria-label", active ? "Remove home note" : "Set as home note");
+  els.homeBtn.title = active ? "Remove home note" : "Set as home note";
+}
+
+function renderHome() {
+  const note = findHomeNote(state.notes.values());
+  els.homeBar.hidden = !note;
+  if (note) {
+    els.homeBar.dataset.id = note.id;
+    els.homeTitle.textContent = deriveTitle(note);
+    els.homeExcerpt.textContent = deriveExcerpt(note.body) || "No additional text";
+    els.homeBar.classList.toggle("is-active", note.id === state.selectedId);
+  } else {
+    delete els.homeBar.dataset.id;
+  }
+  updateHomeButton();
 }
 
 function renderList() {
@@ -708,6 +739,7 @@ function renderList() {
     : inFolder;
 
   renderFolderSelects();
+  renderHome();
   clearNode(els.noteList);
   for (const note of notes) {
     const card = document.createElement("button");
@@ -733,6 +765,13 @@ function renderList() {
 
     const meta = document.createElement("div");
     meta.className = "note-card-meta";
+    if (note.isHome === true) {
+      const homeMeta = document.createElement("span");
+      homeMeta.className = "note-card-home";
+      homeMeta.append(svgUse("home"));
+      homeMeta.append(document.createTextNode("Home"));
+      meta.append(homeMeta);
+    }
     const folder = normalizeFolder(note.folder);
     if (folder) {
       const folderMeta = document.createElement("span");
@@ -919,6 +958,47 @@ function onEditorInput() {
   updateFooter();
   scheduleListRender();
   scheduleSave();
+}
+
+async function writeHomeFlag(note, isHome) {
+  if (!state.notes.has(note.id)) return null;
+  const updated = { ...note, isHome, updatedAt: Date.now() };
+  const envelope = await encryptNote(updated, (plaintext) => state.signer.encrypt(plaintext));
+  if (!state.notes.has(updated.id)) return null;
+  await state.store.write(updated.id, envelope);
+  state.envelopes.set(updated.id, envelope);
+  const live = state.notes.get(updated.id);
+  live.isHome = isHome;
+  live.updatedAt = updated.updatedAt;
+  if (state.draft?.id === updated.id) state.draft = null;
+  state.lastSaved = { id: live.id, snapshot: contentSnapshot(live), at: live.updatedAt };
+  queuePublishEnvelope(envelope);
+  return live;
+}
+
+async function setHomeNote(id, isHome) {
+  if (!state.signer || !state.store) return;
+  await flushSave();
+  await state.savePromise.catch(() => {});
+  const note = state.notes.get(id);
+  if (!note) return;
+  const previous = findHomeNote(state.notes.values());
+  try {
+    if (isHome && previous && previous.id !== id) await writeHomeFlag(previous, false);
+    const updated = await writeHomeFlag(note, isHome);
+    if (!updated) return;
+    if (state.selectedId === updated.id) {
+      setSaveState("saved", `Saved ${clockTime(updated.updatedAt)}`);
+    }
+    renderAll();
+    toast(
+      isHome ? `“${deriveTitle(updated)}” is your home note.` : "Home note removed.",
+      "success",
+      3200,
+    );
+  } catch (error) {
+    toast(error?.message || "Could not update the home note.", "error", 6000);
+  }
 }
 
 function discardEmptyDraft(draft, keepId) {
@@ -1403,6 +1483,7 @@ function resetSession() {
   els.notePreview.innerHTML = "";
   hideNsec();
   updateIdentityUI();
+  renderHome();
 }
 
 function confirmAction({ title, text, okText = "Confirm", danger = false }) {
@@ -2018,6 +2099,15 @@ function setupEvents() {
   });
   els.reconnectOpfsBtn.addEventListener("click", () => {
     void reconnectOpfs();
+  });
+
+  els.homeBar.addEventListener("click", () => {
+    const id = els.homeBar.dataset.id;
+    if (id && state.notes.has(id)) void navigateToNote(id);
+  });
+  els.homeBtn.addEventListener("click", () => {
+    const note = currentNote();
+    if (note) void setHomeNote(note.id, note.isHome !== true);
   });
 
   els.newNoteBtn.addEventListener("click", () => {

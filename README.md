@@ -16,6 +16,7 @@ Available as a progressive web app and as a signed Android APK.
 - Markdown editor with live, sanitized preview.
 - Organize notes into folders (nested with `/`); folders are part of the encrypted payload.
 - Link between notes with `[[Note title]]` wiki-links; links resolve by title (or `Folder/Title`) and clicking a missing link creates the note.
+- Set any note as your home note with the home button in the editor. It stays pinned at the top of the app, follows your key through encrypted backups and relay sync, and only one note can be home at a time.
 - Search, edit, and delete notes; deleted notes leave tombstones so other devices do not resurrect them.
 - Optional relay sync: notes are published as encrypted NIP-78 events and merged across devices that use the same key and relays. Add or change relays in Settings.
 - Works offline; installable as a PWA.

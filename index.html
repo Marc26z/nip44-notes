@@ -47,6 +47,7 @@
     <symbol id="i-install" viewBox="0 0 24 24"><path d="M12 3v11"/><path d="m8 10 4 4 4-4"/><path d="M5 17v2h14v-2"/></symbol>
     <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 7h-5V2"/><path d="M4 17h5v5"/><path d="M5.1 9a7 7 0 0 1 11.5-2.5L20 9"/><path d="M18.9 15a7 7 0 0 1-11.5 2.5L4 15"/></symbol>
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z"/><path d="m14 7 3 3"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5.5h4v5.5"/></symbol>
   </svg>
 
   <div class="app">
@@ -144,6 +145,15 @@
       </section>
 
       <section id="notes-view" class="notes-shell" hidden>
+        <button id="home-bar" class="home-bar" type="button" hidden>
+          <span class="home-mark" aria-hidden="true"><svg class="icon"><use href="#i-home"></use></svg></span>
+          <span class="home-copy">
+            <span class="home-label">Home note</span>
+            <span id="home-title" class="home-title"></span>
+            <span id="home-excerpt" class="home-excerpt"></span>
+          </span>
+          <span class="home-open">Open →</span>
+        </button>
         <aside class="list-pane">
           <div class="list-toolbar">
             <div class="search-wrap">
@@ -195,6 +205,9 @@
                 <span id="save-text">Saved</span>
               </div>
               <div class="editor-actions">
+                <button id="home-btn" class="icon-btn home-btn" type="button" aria-label="Set as home note" title="Set as home note" aria-pressed="false">
+                  <svg class="icon"><use href="#i-home"></use></svg>
+                </button>
                 <button id="preview-btn" class="btn btn-ghost preview-btn" type="button">
                   <svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>
                   <span>Preview</span>
