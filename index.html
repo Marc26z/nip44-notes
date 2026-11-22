@@ -42,6 +42,7 @@
     <symbol id="i-heading" viewBox="0 0 24 24"><path d="M6 5v14M18 5v14M6 12h12"/></symbol>
     <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.1M4.5 12h.1M4.5 18h.1"/></symbol>
     <symbol id="i-checklist" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="6" height="6" rx="1.5"/><path d="m5.3 7.5 1.3 1.3 2.1-2.6"/><rect x="3.5" y="13.5" width="6" height="6" rx="1.5"/><path d="M13 7.5h7.5M13 16.5h7.5"/></symbol>
+    <symbol id="i-spell" viewBox="0 0 24 24"><path d="M3 18 7 6l4 12M4.4 14h5.2"/><path d="m14 17.5 2.2 2.2 4.3-4.5"/></symbol>
     <symbol id="i-quote" viewBox="0 0 24 24"><path d="M5 7h6v6H8a3 3 0 0 1-3-3Z"/><path d="M13 7h6v6h-3a3 3 0 0 1-3-3Z"/><path d="M8 13c0 2-1 3.5-3 4M16 13c0 2-1 3.5-3 4"/></symbol>
     <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></symbol>
     <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1 1"/><path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1-1"/></symbol>
@@ -248,11 +249,19 @@
               <button class="md-btn" type="button" data-md="quote" aria-label="Quote" title="Quote"><svg class="icon"><use href="#i-quote"></use></svg></button>
               <button class="md-btn" type="button" data-md="code" aria-label="Code" title="Code"><svg class="icon"><use href="#i-code"></use></svg></button>
               <button class="md-btn" type="button" data-md="link" aria-label="Link" title="Link"><svg class="icon"><use href="#i-link"></use></svg></button>
+              <button id="spellcheck-btn" class="md-btn spell-toggle" type="button" aria-label="Spell check" title="Toggle spell check" aria-pressed="true"><svg class="icon"><use href="#i-spell"></use></svg></button>
             </div>
 
             <div class="editor-body">
+              <div id="note-highlights" class="note-highlights" aria-hidden="true"></div>
               <textarea id="note-body" class="note-body" placeholder="Start writing in Markdown…" spellcheck="true" aria-label="Note body"></textarea>
               <div id="note-preview" class="markdown" hidden></div>
+              <div id="spell-suggestions" class="spell-suggestions" hidden>
+                <span id="spell-target" class="spell-target"></span>
+                <div id="spell-options" class="spell-options"></div>
+                <button id="spell-add-btn" class="spell-action" type="button" title="Add to dictionary" aria-label="Add to dictionary">+</button>
+                <button id="spell-dismiss-btn" class="spell-action" type="button" title="Dismiss" aria-label="Dismiss"><svg class="icon"><use href="#i-x"></use></svg></button>
+              </div>
             </div>
 
             <div class="editor-footer">

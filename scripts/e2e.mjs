@@ -525,6 +525,61 @@ async function main() {
   );
   ok("checklist button and [ ] / [X] syntax work");
 
+  /* -------------------------------------------------------- spell check -- */
+  console.log("\nSpell check");
+  click(byId(s2.window, "tab-edit"));
+  await waitFor("edit tab", () => !body.hidden);
+  const spellBtn = byId(s2.window, "spellcheck-btn");
+  const highlights = byId(s2.window, "note-highlights");
+  const suggestions = byId(s2.window, "spell-suggestions");
+  assert(spellBtn.getAttribute("aria-pressed") === "true", "spell check is on by default");
+
+  fire(body, "input", "This sentnce has a speling eror.");
+  await waitFor("spelling highlights", () => highlights.querySelectorAll(".spell-error").length === 3);
+  assert(
+    JSON.stringify([...highlights.querySelectorAll(".spell-error")].map((node) => node.textContent)) ===
+      JSON.stringify(["sentnce", "speling", "eror"]),
+    "underlines cover exactly the three misspelled words",
+  );
+  assert(/3 spelling issues/.test(byId(s2.window, "word-count").textContent), "footer counts the spelling issues");
+  ok("misspelled words are underlined in the editor");
+
+  body.setSelectionRange(7, 7);
+  click(body);
+  assert(!suggestions.hidden, "suggestions open for the word under the caret");
+  assert(byId(s2.window, "spell-target").textContent === "sentnce", "target is the word under the caret");
+  const firstOption = byId(s2.window, "spell-options").firstElementChild;
+  assert(firstOption, "at least one suggestion is offered");
+  click(firstOption);
+  await waitFor("suggestion applied", () => !body.value.includes("sentnce"));
+  assert(suggestions.hidden, "suggestions close after a replacement");
+  ok("a suggestion replaces the misspelled word");
+
+  const secondWord = body.value.indexOf("speling");
+  body.setSelectionRange(secondWord + 2, secondWord + 2);
+  click(body);
+  assert(byId(s2.window, "spell-target").textContent === "speling", "target moves to the next word");
+  click(byId(s2.window, "spell-add-btn"));
+  await waitFor(
+    "custom word accepted",
+    () => ![...highlights.querySelectorAll(".spell-error")].some((node) => node.textContent === "speling"),
+  );
+  assert(
+    /speling/.test(s2.window.localStorage.getItem("nip44notes.spellcheck.words") || ""),
+    "custom word is persisted",
+  );
+  ok("adding a word to the dictionary keeps it out of future checks");
+
+  click(spellBtn);
+  assert(spellBtn.getAttribute("aria-pressed") === "false", "button reflects the off state");
+  assert(body.spellcheck === true, "native spellcheck takes over when disabled");
+  assert(highlights.hidden === true, "custom underlines are hidden when disabled");
+  click(spellBtn);
+  assert(spellBtn.getAttribute("aria-pressed") === "true", "button reflects the on state");
+  assert(body.spellcheck === false, "native spellcheck is disabled while custom check is on");
+  await waitFor("spell check restored", () => highlights.querySelectorAll(".spell-error").length === 1);
+  ok("spell check toggles off and back on");
+
   const scriptErrors = [...s1.errors, ...s2.errors, ...otherDevice.errors];
   assert(scriptErrors.length === 0, `no script errors (got: ${scriptErrors.join("; ")})`);
 

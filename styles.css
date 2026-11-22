@@ -1195,10 +1195,42 @@ main {
 }
 
 .editor-body {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.note-highlights {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 18px 24px calc(28px + var(--safe-bottom));
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.72;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  tab-size: 2;
+}
+
+.note-highlights .spell-error {
+  border-radius: 2px;
+  background: var(--danger-soft);
+  text-decoration: underline wavy var(--danger);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.editor-body.spell-active .note-body {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  caret-color: var(--text);
 }
 
 .note-body {
@@ -1213,11 +1245,93 @@ main {
   font-size: 0.9rem;
   line-height: 1.72;
   resize: none;
+  scrollbar-width: none;
   tab-size: 2;
+}
+
+.note-body::-webkit-scrollbar {
+  display: none;
 }
 
 .note-body::placeholder {
   color: var(--text-3);
+}
+
+.spell-toggle.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.spell-suggestions {
+  position: absolute;
+  z-index: 2;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.spell-target {
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.spell-options {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.spell-option {
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.spell-option:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.spell-action {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.spell-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.spell-action .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.spell-count {
+  color: var(--danger);
 }
 
 .markdown {
@@ -1775,6 +1889,11 @@ main {
   }
 
   .note-body {
+    padding: 16px 18px calc(24px + var(--safe-bottom));
+    font-size: 0.86rem;
+  }
+
+  .note-highlights {
     padding: 16px 18px calc(24px + var(--safe-bottom));
     font-size: 0.86rem;
   }

@@ -14,6 +14,7 @@ Available as a progressive web app and as a signed Android APK.
 - Every note is encrypted with NIP-44 before it is written to disk.
 - Notes are `.nip44` files in a folder you choose (File System Access API), or in private app storage (OPFS/IndexedDB) when no folder is available.
 - Markdown editor with live, sanitized preview.
+- Built-in spell check: misspellings are underlined as you type, with tappable suggestions and an "add to dictionary" option. The dictionary is bundled, so checking works offline and nothing you type is sent anywhere. Toggle it from the editor toolbar; your choice and added words stay on the device.
 - Organize notes into folders (nested with `/`); folders are part of the encrypted payload.
 - Link between notes with `[[Note title]]` wiki-links; links resolve by title (or `Folder/Title`) and clicking a missing link creates the note.
 - Set any note as your home note with the home button in the editor. It stays pinned at the top of the app, follows your key through encrypted backups and relay sync, and only one note can be home at a time.

@@ -66,6 +66,13 @@ import {
   svgUse,
 } from "./ui.js";
 import { initMarkdown, renderMarkdown } from "./markdown.js";
+import {
+  addCustomWord,
+  findMisspellings,
+  setSpellcheckEnabled,
+  spellcheckEnabled,
+  suggest,
+} from "./spellcheck.js";
 
 initMarkdown(window);
 
@@ -147,6 +154,13 @@ const els = {
   noteBody: document.getElementById("note-body"),
   notePreview: document.getElementById("note-preview"),
   wordCount: document.getElementById("word-count"),
+  spellcheckBtn: document.getElementById("spellcheck-btn"),
+  noteHighlights: document.getElementById("note-highlights"),
+  spellSuggestions: document.getElementById("spell-suggestions"),
+  spellTarget: document.getElementById("spell-target"),
+  spellOptions: document.getElementById("spell-options"),
+  spellAddBtn: document.getElementById("spell-add-btn"),
+  spellDismissBtn: document.getElementById("spell-dismiss-btn"),
 
   settingsDialog: document.getElementById("settings-dialog"),
   settingsNpub: document.getElementById("settings-npub"),
@@ -235,6 +249,10 @@ const state = {
   syncRun: 0,
   lastSync: 0,
   publishPromise: Promise.resolve(),
+  spellEnabled: spellcheckEnabled(),
+  spellIssues: [],
+  spellTimer: 0,
+  spellIssueIndex: -1,
 };
 
 function toast(message, kind = "info", timeout = 4200) {
@@ -578,6 +596,118 @@ function updateFooter() {
   const note = currentNote();
   const words = note ? countWords(note.body) : 0;
   els.wordCount.textContent = `${words} ${words === 1 ? "word" : "words"}`;
+  if (state.spellEnabled && state.spellIssues.length) {
+    const count = state.spellIssues.length;
+    const badge = document.createElement("span");
+    badge.className = "spell-count";
+    badge.textContent = ` · ${count} spelling ${count === 1 ? "issue" : "issues"}`;
+    els.wordCount.append(badge);
+  }
+}
+
+function escapeHtml(value) {
+  const escapes = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  return String(value ?? "").replace(/[&<>"']/g, (char) => escapes[char]);
+}
+
+function renderSpellHighlights() {
+  const value = els.noteBody.value;
+  state.spellIssues = state.spellEnabled ? findMisspellings(value) : [];
+  let html = "";
+  let cursor = 0;
+  state.spellIssues.forEach((issue, index) => {
+    html += escapeHtml(value.slice(cursor, issue.start));
+    html += `<span class="spell-error" data-spell-index="${index}">${escapeHtml(issue.word)}</span>`;
+    cursor = issue.end;
+  });
+  html += escapeHtml(value.slice(cursor));
+  els.noteHighlights.innerHTML = `${html}\n`;
+  els.noteHighlights.scrollTop = els.noteBody.scrollTop;
+  els.noteHighlights.scrollLeft = els.noteBody.scrollLeft;
+  updateFooter();
+}
+
+function scheduleSpellcheck() {
+  if (!state.spellEnabled) return;
+  if (state.spellTimer) clearTimeout(state.spellTimer);
+  state.spellTimer = setTimeout(() => {
+    state.spellTimer = 0;
+    renderSpellHighlights();
+  }, 160);
+}
+
+function hideSpellSuggestions() {
+  els.spellSuggestions.hidden = true;
+  state.spellIssueIndex = -1;
+}
+
+function showSpellSuggestions(index) {
+  const issue = state.spellIssues[index];
+  if (!issue) {
+    hideSpellSuggestions();
+    return;
+  }
+  state.spellIssueIndex = index;
+  els.spellTarget.textContent = issue.word;
+  clearNode(els.spellOptions);
+  for (const suggestion of suggest(issue.word)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "spell-option";
+    button.dataset.spellSuggestion = suggestion;
+    button.textContent = suggestion;
+    els.spellOptions.append(button);
+  }
+  els.spellSuggestions.hidden = false;
+}
+
+function onSpellCaret() {
+  if (!state.spellEnabled) return;
+  const start = els.noteBody.selectionStart;
+  const end = els.noteBody.selectionEnd;
+  const index = state.spellIssues.findIndex((issue) => issue.start <= end && issue.end >= start);
+  if (index === -1) hideSpellSuggestions();
+  else showSpellSuggestions(index);
+}
+
+function replaceSpellWord(index, replacement) {
+  const issue = state.spellIssues[index];
+  if (!issue || !replacement) return;
+  const value = els.noteBody.value;
+  if (value.slice(issue.start, issue.end) !== issue.word) return;
+  els.noteBody.value = value.slice(0, issue.start) + replacement + value.slice(issue.end);
+  const caret = issue.start + replacement.length;
+  els.noteBody.setSelectionRange(caret, caret);
+  hideSpellSuggestions();
+  onEditorInput();
+  renderSpellHighlights();
+}
+
+function setSpellEnabled(enabled) {
+  state.spellEnabled = enabled;
+  setSpellcheckEnabled(enabled);
+  els.spellcheckBtn.classList.toggle("is-active", enabled);
+  els.spellcheckBtn.setAttribute("aria-pressed", String(enabled));
+  els.noteBody.spellcheck = !enabled;
+  const active = enabled && state.mode === "edit";
+  els.noteHighlights.hidden = !active;
+  els.noteBody.parentElement.classList.toggle("spell-active", active);
+  if (state.spellTimer) {
+    clearTimeout(state.spellTimer);
+    state.spellTimer = 0;
+  }
+  hideSpellSuggestions();
+  if (enabled) renderSpellHighlights();
+  else {
+    state.spellIssues = [];
+    els.noteHighlights.textContent = "";
+    updateFooter();
+  }
+}
+
+function onSpellScroll() {
+  els.noteHighlights.scrollTop = els.noteBody.scrollTop;
+  els.noteHighlights.scrollLeft = els.noteBody.scrollLeft;
 }
 
 const ALL_FOLDERS = "__all__";
@@ -678,8 +808,15 @@ function setMode(mode, { focus = false } = {}) {
   if (label) label.textContent = preview ? "Edit" : "Preview";
   const use = els.previewBtn.querySelector("use");
   if (use) use.setAttribute("href", preview ? "#i-pencil" : "#i-eye");
+  const spellActive = state.spellEnabled && !preview;
+  els.noteHighlights.hidden = !spellActive;
+  els.noteBody.parentElement.classList.toggle("spell-active", spellActive);
+  if (!spellActive) hideSpellSuggestions();
   if (preview) renderPreview();
-  else if (focus) els.noteBody.focus();
+  else {
+    renderSpellHighlights();
+    if (focus) els.noteBody.focus();
+  }
 }
 
 function fillEditor(note) {
@@ -689,6 +826,7 @@ function fillEditor(note) {
   els.noteTitle.value = note.title;
   els.noteBody.value = note.body;
   setMode("edit", { focus: false });
+  renderSpellHighlights();
   updateFooter();
   const saved = state.envelopes.has(note.id);
   setSaveState("saved", saved ? `Saved ${clockTime(note.updatedAt)}` : "Draft");
@@ -956,6 +1094,8 @@ function onEditorInput() {
   note.body = els.noteBody.value;
   setSaveState("unsaved", "Unsaved");
   updateFooter();
+  scheduleSpellcheck();
+  hideSpellSuggestions();
   scheduleListRender();
   scheduleSave();
 }
@@ -2230,6 +2370,26 @@ function setupEvents() {
     applyMarkdown(button.dataset.md);
   });
 
+  els.spellcheckBtn.addEventListener("click", () => setSpellEnabled(!state.spellEnabled));
+  els.noteBody.addEventListener("scroll", onSpellScroll);
+  els.noteBody.addEventListener("click", onSpellCaret);
+  els.noteBody.addEventListener("keyup", (event) => {
+    if (event.key.startsWith("Arrow") || event.key === "Home" || event.key === "End") onSpellCaret();
+  });
+  els.spellOptions.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-spell-suggestion]") : null;
+    if (button) replaceSpellWord(state.spellIssueIndex, button.dataset.spellSuggestion);
+  });
+  els.spellAddBtn.addEventListener("click", () => {
+    const issue = state.spellIssues[state.spellIssueIndex];
+    if (!issue) return;
+    addCustomWord(issue.word);
+    hideSpellSuggestions();
+    renderSpellHighlights();
+    toast(`Added “${issue.word}” to your dictionary.`);
+  });
+  els.spellDismissBtn.addEventListener("click", hideSpellSuggestions);
+
   els.backBtn.addEventListener("click", () => {
     void showList();
   });
@@ -2478,6 +2638,7 @@ async function boot() {
   await resolveStorage();
 }
 
+setSpellEnabled(state.spellEnabled);
 setupEvents();
 void boot();
 
