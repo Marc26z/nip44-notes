@@ -1,6 +1,6 @@
 {
   "name": "nip44-notes",
-  "version": "0.07",
+  "version": "0.08",
   "description": "Markdown notes encrypted with NIP-44 and stored as files.",
   "type": "module",
   "private": true,

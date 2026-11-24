@@ -1336,6 +1336,7 @@ main {
 
 .markdown {
   flex: 1;
+  overflow-x: hidden;
   overflow-y: auto;
   width: 100%;
   max-width: 780px;
@@ -1344,6 +1345,12 @@ main {
   font-family: var(--font-serif);
   font-size: 1.04rem;
   line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.markdown img {
+  max-width: 100%;
+  height: auto;
 }
 
 .markdown > :first-child {
@@ -1426,6 +1433,8 @@ main {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .markdown pre code {
