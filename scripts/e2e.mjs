@@ -308,7 +308,7 @@ async function main() {
   ok("Markdown preview renders");
 
   /* -------------------------------------------------- folders + wikilinks -- */
-  console.log("\nSession 1b: folders and wikilinks");
+  console.log("\nSession 1b: wikilinks");
   click(byId(s1.window, "new-note-btn"));
   await waitFor(
     "fresh editor for a new note",
@@ -322,18 +322,6 @@ async function main() {
     "input",
     "Read [[Shopping list]] and [[Future note]].",
   );
-
-  const folderSelect = byId(s1.window, "note-folder");
-  folderSelect.value = "__new__";
-  fire(folderSelect, "change");
-  await waitFor("folder dialog", () => byId(s1.window, "folder-dialog").open);
-  fire(byId(s1.window, "folder-name-input"), "input", "Work");
-  click(byId(s1.window, "folder-save"));
-  await waitFor("folder assigned", () => byId(s1.window, "note-folder").value === "Work");
-  await waitFor("folder saved", () =>
-    byId(s1.window, "save-text").textContent.startsWith("Saved"),
-  );
-  ok("note moved into a new folder");
 
   click(byId(s1.window, "home-btn"));
   await waitFor("home note switched", () => byId(s1.window, "home-title").textContent === "Ideas");
@@ -357,19 +345,6 @@ async function main() {
   );
   ok("wikilinks resolve and offer creation");
 
-  const folderFilter = byId(s1.window, "folder-filter");
-  folderFilter.value = "Work";
-  fire(folderFilter, "change");
-  assert(
-    s1.window.document.querySelectorAll(".note-card").length === 1 &&
-      s1.window.document.querySelector(".note-card-title").textContent === "Ideas",
-    "folder filter narrows the list",
-  );
-  folderFilter.value = "__all__";
-  fire(folderFilter, "change");
-  assert(s1.window.document.querySelectorAll(".note-card").length === 2, "filter clears");
-  ok("folder filter works");
-
   const missingLink = s1.window.document.querySelector("#note-preview a.wikilink.is-missing");
   assert(missingLink, "missing wikilink is rendered as a link");
   click(missingLink);
@@ -389,7 +364,7 @@ async function main() {
   const ideasCard = [...s1.window.document.querySelectorAll(".note-card")].find(
     (card) => card.querySelector(".note-card-title").textContent === "Ideas",
   );
-  assert(ideasCard, "the folder note is still listed");
+  assert(ideasCard, "the second note is still listed");
   click(ideasCard);
   await waitFor("editor", () => !byId(s1.window, "editor").hidden);
 
@@ -401,7 +376,7 @@ async function main() {
     () => s1.window.document.querySelectorAll(".note-card").length === 1,
   );
   assert(byId(s1.window, "home-bar").hidden, "deleting the home note clears the home bar");
-  ok("temporary folder note deleted before reload");
+  ok("temporary note deleted before reload");
 
   /* ---------------------------------------------------------- session 2 -- */
   console.log("\nSession 2: reload with the same browser profile");

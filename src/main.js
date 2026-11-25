@@ -15,7 +15,6 @@ import {
   fullDate,
   newNote,
   normalizeFolder,
-  listFolders,
   buildNoteLinkIndex,
   resolveNoteLink,
 } from "./core.js";
@@ -125,7 +124,6 @@ const els = {
   homeBtn: document.getElementById("home-btn"),
   searchInput: document.getElementById("search-input"),
   clearSearchBtn: document.getElementById("clear-search-btn"),
-  folderFilter: document.getElementById("folder-filter"),
   newNoteBtn: document.getElementById("new-note-btn"),
   unreadableBanner: document.getElementById("unreadable-banner"),
   invalidBanner: document.getElementById("invalid-banner"),
@@ -147,7 +145,6 @@ const els = {
   exportBtn: document.getElementById("export-btn"),
   deleteBtn: document.getElementById("delete-btn"),
   noteTitle: document.getElementById("note-title"),
-  noteFolder: document.getElementById("note-folder"),
   tabEdit: document.getElementById("tab-edit"),
   tabPreview: document.getElementById("tab-preview"),
   markdownToolbar: document.getElementById("markdown-toolbar"),
@@ -194,14 +191,6 @@ const els = {
   confirmCancel: document.getElementById("confirm-cancel"),
   confirmOk: document.getElementById("confirm-ok"),
 
-  folderDialog: document.getElementById("folder-dialog"),
-  folderDialogTitle: document.getElementById("folder-dialog-title"),
-  folderDialogText: document.getElementById("folder-dialog-text"),
-  folderNameInput: document.getElementById("folder-name-input"),
-  folderError: document.getElementById("folder-error"),
-  folderCancel: document.getElementById("folder-cancel"),
-  folderSave: document.getElementById("folder-save"),
-
   recoveryDialog: document.getElementById("recovery-dialog"),
   recoveryNsec: document.getElementById("recovery-nsec"),
   recoveryNpub: document.getElementById("recovery-npub"),
@@ -232,7 +221,6 @@ const state = {
   draft: null,
   lastSaved: null,
   filter: "",
-  filterFolder: null,
   mode: "edit",
   unreadable: 0,
   invalid: 0,
@@ -710,69 +698,6 @@ function onSpellScroll() {
   els.noteHighlights.scrollLeft = els.noteBody.scrollLeft;
 }
 
-const ALL_FOLDERS = "__all__";
-const UNFILED = "__unfiled__";
-const NEW_FOLDER = "__new__";
-
-function folderToValue(folder) {
-  if (folder === null) return ALL_FOLDERS;
-  return folder || UNFILED;
-}
-
-function folderFromValue(value) {
-  if (value === ALL_FOLDERS) return null;
-  if (value === UNFILED) return "";
-  return value;
-}
-
-function knownFolders() {
-  const folders = listFolders([...state.notes.values()]);
-  if (state.filterFolder) {
-    const key = state.filterFolder.toLowerCase();
-    if (!folders.some((folder) => folder.toLowerCase() === key)) folders.push(state.filterFolder);
-  }
-  return folders.sort((a, b) =>
-    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
-  );
-}
-
-function fillFolderOptions(select, folders, value, extra = []) {
-  if (!select) return;
-  const previous = select.value;
-  select.textContent = "";
-  for (const option of extra) {
-    const node = document.createElement("option");
-    node.value = option.value;
-    node.textContent = option.label;
-    select.append(node);
-  }
-  for (const folder of folders) {
-    const node = document.createElement("option");
-    node.value = folder;
-    node.textContent = folder;
-    select.append(node);
-  }
-  select.value = value;
-  if (select.value !== value && previous) select.value = previous;
-}
-
-function renderFolderSelects() {
-  const folders = knownFolders();
-  fillFolderOptions(
-    els.folderFilter,
-    folders,
-    folderToValue(state.filterFolder),
-    [
-      { value: ALL_FOLDERS, label: "All notes" },
-      { value: UNFILED, label: "Unfiled" },
-    ],
-  );
-  const note = currentNote();
-  fillFolderOptions(els.noteFolder, folders, note ? normalizeFolder(note.folder) : "", [
-    { value: "", label: "No folder" },
-    { value: NEW_FOLDER, label: "New folder…" },
-  ]);
-}
 
 function wikilinkResolver() {
   const index = buildNoteLinkIndex([...state.notes.values()]);
@@ -866,17 +791,11 @@ function renderHome() {
 
 function renderList() {
   const all = sortNotes([...state.notes.values()]);
-  const folderKey = state.filterFolder === null ? null : state.filterFolder.toLowerCase();
-  const inFolder =
-    folderKey === null
-      ? all
-      : all.filter((note) => normalizeFolder(note.folder).toLowerCase() === folderKey);
   const query = state.filter.trim().toLowerCase();
   const notes = query
-    ? inFolder.filter((note) => `${note.title}\n${note.body}`.toLowerCase().includes(query))
-    : inFolder;
+    ? all.filter((note) => `${note.title}\n${note.body}`.toLowerCase().includes(query))
+    : all;
 
-  renderFolderSelects();
   renderHome();
   clearNode(els.noteList);
   for (const note of notes) {
@@ -910,14 +829,6 @@ function renderList() {
       homeMeta.append(document.createTextNode("Home"));
       meta.append(homeMeta);
     }
-    const folder = normalizeFolder(note.folder);
-    if (folder) {
-      const folderMeta = document.createElement("span");
-      folderMeta.className = "note-card-folder";
-      folderMeta.append(svgUse("folder"));
-      folderMeta.append(document.createTextNode(folder));
-      meta.append(folderMeta);
-    }
     meta.append(svgUse("lock"));
     const metaText = document.createElement("span");
     metaText.textContent = state.envelopes.has(note.id) ? "NIP-44 encrypted" : "Draft";
@@ -940,11 +851,6 @@ function renderList() {
       els.emptyTitle.textContent = "No matches";
       els.emptyText.textContent = `Nothing matches “${state.filter.trim()}”.`;
       els.emptyNewBtn.hidden = true;
-    } else if (state.filterFolder !== null) {
-      const label = state.filterFolder ? `“${state.filterFolder}”` : "Unfiled";
-      els.emptyTitle.textContent = `No notes in ${label}`;
-      els.emptyText.textContent = "Create a note here or pick another folder.";
-      els.emptyNewBtn.hidden = false;
     } else {
       els.emptyTitle.textContent = "No notes yet";
       els.emptyText.textContent = "Create your first encrypted note.";
@@ -1209,11 +1115,7 @@ async function navigateToNote(id) {
   await openNoteView(id, { fromRoute: true });
 }
 
-function defaultNewNoteFolder() {
-  return state.filterFolder === null ? "" : state.filterFolder;
-}
-
-function addDraftNote({ title = "", folder = defaultNewNoteFolder() } = {}) {
+function addDraftNote({ title = "", folder = "" } = {}) {
   const note = newNote({ title, folder });
   state.notes.set(note.id, note);
   state.draft = note;
@@ -1273,7 +1175,7 @@ async function routeOnce() {
     }
     const note = addDraftNote({
       title: target.title,
-      folder: target.folder || defaultNewNoteFolder(),
+      folder: target.folder || "",
     });
     history.replaceState(null, "", `#/n/${note.id}`);
     await openNoteView(note.id, { fromRoute: true });
@@ -1608,7 +1510,6 @@ function resetSession() {
   state.unreadable = 0;
   state.invalid = 0;
   state.filter = "";
-  state.filterFolder = null;
   state.savePromise = Promise.resolve();
   state.publishPromise = Promise.resolve();
   state.syncing = false;
@@ -1669,94 +1570,6 @@ function confirmAction({ title, text, okText = "Confirm", danger = false }) {
     els.confirmDialog.addEventListener("close", onClose);
     els.confirmDialog.showModal();
   });
-}
-
-function promptFolderName({
-  title = "New folder",
-  text = "Give the folder a name. You can use “/” for nested folders.",
-  okText = "Create folder",
-  initial = "",
-} = {}) {
-  return new Promise((resolve) => {
-    if (els.folderDialog.open) {
-      resolve(null);
-      return;
-    }
-    let settled = false;
-    const cleanup = () => {
-      els.folderDialog.removeEventListener("cancel", onCancel);
-      els.folderDialog.removeEventListener("close", onClose);
-      els.folderSave.removeEventListener("click", onSubmit);
-      els.folderCancel.removeEventListener("click", onCancel);
-      els.folderNameInput.removeEventListener("keydown", onKeyDown);
-    };
-    const finish = (value) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      if (els.folderDialog.open) els.folderDialog.close();
-      resolve(value);
-    };
-    const onCancel = (event) => {
-      event?.preventDefault?.();
-      finish(null);
-    };
-    const onClose = () => finish(null);
-    const onSubmit = (event) => {
-      event?.preventDefault?.();
-      const typed = normalizeFolder(els.folderNameInput.value);
-      if (!typed) {
-        els.folderError.textContent = "Enter a folder name.";
-        els.folderError.hidden = false;
-        els.folderNameInput.focus();
-        return;
-      }
-      const existing = knownFolders().find(
-        (folder) => folder.toLowerCase() === typed.toLowerCase(),
-      );
-      finish(existing || typed);
-    };
-    const onKeyDown = (event) => {
-      if (event.key !== "Enter") return;
-      event.preventDefault();
-      onSubmit(event);
-    };
-
-    els.folderDialogTitle.textContent = title;
-    els.folderDialogText.textContent = text;
-    els.folderSave.textContent = okText;
-    els.folderNameInput.value = initial;
-    els.folderError.hidden = true;
-    els.folderDialog.addEventListener("cancel", onCancel);
-    els.folderDialog.addEventListener("close", onClose);
-    els.folderSave.addEventListener("click", onSubmit);
-    els.folderCancel.addEventListener("click", onCancel);
-    els.folderNameInput.addEventListener("keydown", onKeyDown);
-    els.folderDialog.showModal();
-    setTimeout(() => {
-      els.folderNameInput.focus();
-      els.folderNameInput.select();
-    }, 30);
-  });
-}
-
-function assignFolder(folder) {
-  const note = currentNote();
-  if (!note) return;
-  const next = normalizeFolder(folder);
-  if (normalizeFolder(note.folder) === next) return;
-  note.folder = next;
-  setSaveState("unsaved", "Unsaved");
-  scheduleListRender();
-  scheduleSave();
-}
-
-async function createFolderForNote() {
-  const note = currentNote();
-  if (!note) return;
-  els.noteFolder.value = normalizeFolder(note.folder);
-  const name = await promptFolderName();
-  if (name) assignFolder(name);
 }
 
 async function signOut() {
@@ -2307,19 +2120,6 @@ function setupEvents() {
     els.searchInput.value = "";
     onSearch();
     els.searchInput.focus();
-  });
-
-  els.folderFilter.addEventListener("change", () => {
-    state.filterFolder = folderFromValue(els.folderFilter.value);
-    renderList();
-  });
-
-  els.noteFolder.addEventListener("change", () => {
-    if (els.noteFolder.value === NEW_FOLDER) {
-      void createFolderForNote();
-      return;
-    }
-    assignFolder(els.noteFolder.value);
   });
 
   els.noteTitle.addEventListener("input", onEditorInput);
